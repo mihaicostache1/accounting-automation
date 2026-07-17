@@ -14,9 +14,23 @@ python main.py
 ```
 
 La prima pornire se creează automat:
-- baza de date `declaratii.db` (lângă cod);
+- baza de date `declaratii.db` (lângă cod; pentru executabilul împachetat, în
+  folderul de date al utilizatorului — pe macOS
+  `~/Library/Application Support/DeclaratiiFirme/`);
 - 3 firme demo cu statusuri mixte pentru 2026;
 - PDF-uri demo în folderul de bază.
+
+## Generarea unui executabil
+
+```bash
+pip install pyinstaller
+pyinstaller --noconfirm --clean --onefile --windowed --name declaut main.py
+```
+
+Rezultatul apare în `dist/`: pe macOS `declaut` (binar) și `declaut.app`
+(aplicația pentru dublu-click); pe Windows, aceeași comandă produce
+`dist\declaut.exe`. Executabilul se construiește pentru sistemul pe care rulezi
+comanda — un `.exe` de Windows se poate genera doar pe un PC cu Windows.
 
 ## Utilizare
 

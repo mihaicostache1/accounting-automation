@@ -1,11 +1,29 @@
 """Application-wide constants for the Fiscal Declarations Tracker."""
 
+import os
+import sys
 from pathlib import Path
 
 APP_NAME = "Evidență Declarații Fiscale"
 
-# SQLite database lives next to the application code.
-DB_PATH = Path(__file__).resolve().parent / "declaratii.db"
+
+def _data_dir() -> Path:
+    """Writable data dir: next to the code in development, the per-user
+    app-data folder when running as a frozen (PyInstaller) executable."""
+    if getattr(sys, "frozen", False):
+        if sys.platform == "darwin":
+            base = Path.home() / "Library" / "Application Support" / "DeclaratiiFirme"
+        elif sys.platform == "win32":
+            base = Path(os.environ.get("APPDATA", str(Path.home()))) / "DeclaratiiFirme"
+        else:
+            base = Path.home() / ".local" / "share" / "declaratii_firme"
+        base.mkdir(parents=True, exist_ok=True)
+        return base
+    return Path(__file__).resolve().parent
+
+
+# SQLite database location (see _data_dir).
+DB_PATH = _data_dir() / "declaratii.db"
 
 # Default base folder for organized PDF storage. The effective value is stored
 # in the DB `settings` table and can be changed from the app (Setări folder).
