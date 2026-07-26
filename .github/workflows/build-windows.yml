@@ -38,3 +38,20 @@ jobs:
         with:
           name: declaut-windows
           path: dist\declaut-windows.zip
+
+      # Diagnostic twin of the build above: --console keeps a terminal attached
+      # so a startup exception prints a traceback instead of failing silently
+      # (a --windowed build has nowhere to write it, so nothing appears at all).
+      - name: Build console (diagnostic) variant
+        run: >
+          pyinstaller --noconfirm --clean --onedir --console --noupx
+          --name declaut-debug main.py
+
+      - name: Zip the diagnostic build
+        run: Compress-Archive -Path dist\declaut-debug -DestinationPath dist\declaut-windows-debug.zip
+
+      - name: Upload diagnostic artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: declaut-windows-debug
+          path: dist\declaut-windows-debug.zip
