@@ -104,8 +104,12 @@ def _match_tip(haystack: str) -> tuple[str | None, str]:
     if "CASE DE MARCAT" in haystack:
         return "Case de marcat", "„case de marcat” găsit în cale"
 
+    # Bounded by non-digits rather than \b: filenames commonly glue a letter
+    # prefix straight onto the code ('d100.pdf' has no word boundary between
+    # 'D' and '100'), but a real match must still be the FULL numeric code,
+    # not a substring of a longer number.
     found = [(m.start(), m.group()) for m in
-             re.finditer(rf"\b({'|'.join(_NUMERIC_TYPES)})\b", haystack)]
+             re.finditer(rf"(?<!\d)(?:{'|'.join(_NUMERIC_TYPES)})(?!\d)", haystack)]
     if found:
         _, tip = max(found)
         return tip, f"tip {tip} găsit în cale"
@@ -140,20 +144,14 @@ def _match_period(haystack: str) -> tuple[int | None, int | None, str]:
     return None, None, "perioada nu a putut fi identificată"
 
 
-def scan(folder: Path | str | None = None) -> list[Candidate]:
-    """Find every PDF under `folder` and guess company / type / period for it.
+def _scan_folder(root: Path, firme: list, preset_firma=None) -> list[Candidate]:
+    """Find every PDF under `root` and guess type / period for it.
 
-    Returns rows sorted so the ones needing attention surface first. Raises
-    FileNotFoundError if the folder does not exist, so the caller can point the
-    user at the folder setting.
+    When `preset_firma` is given (a firm's dedicated folder), the company is
+    already known and is never guessed; otherwise it is matched against
+    `firme` the same way as the shared source folder.
     """
-    root = Path(folder) if folder is not None else database.get_source_folder()
-    if not root.is_dir():
-        raise FileNotFoundError(root)
-
-    firme = database.list_firme()
     candidates: list[Candidate] = []
-
     for pdf in sorted(root.rglob("*.pdf")):
         # Match against the path *relative* to the root: absolute paths carry
         # noise ('1. Declaratii 100' is useful, 'C:\\Users\\...' is not).
@@ -161,15 +159,73 @@ def scan(folder: Path | str | None = None) -> list[Candidate]:
         haystack = _fold(str(relative))
 
         cand = Candidate(path=pdf)
-        firma, why_firma = _match_firma(haystack, firme)
-        if firma is not None:
-            cand.firma_id = firma["id"]
-            cand.nume_firma = firma["nume_firma"]
-            cand.cui = firma["cui"]
+        if preset_firma is not None:
+            cand.firma_id = preset_firma["id"]
+            cand.nume_firma = preset_firma["nume_firma"]
+            cand.cui = preset_firma["cui"]
+            why_firma = f"folder dedicat firmei „{preset_firma['nume_firma']}”"
+        else:
+            firma, why_firma = _match_firma(haystack, firme)
+            if firma is not None:
+                cand.firma_id = firma["id"]
+                cand.nume_firma = firma["nume_firma"]
+                cand.cui = firma["cui"]
         cand.tip, why_tip = _match_tip(haystack)
         cand.an, cand.luna, why_period = _match_period(haystack)
         cand.notes = [why_firma, why_tip, why_period]
         candidates.append(cand)
+    return candidates
+
+
+def scan(folder: Path | str | None = None) -> list[Candidate]:
+    """Find every declaration PDF and guess company / type / period for it.
+
+    With an explicit `folder`, scans only that folder and guesses the company
+    among every firm (used to preview a single folder in isolation). With no
+    argument (the normal case), combines every firm's dedicated folder — where
+    the company is already known, not guessed — with the shared source folder
+    for firms that have no override.
+
+    Returns rows sorted so the ones needing attention surface first. Raises
+    FileNotFoundError if the (combined-mode) shared folder does not exist, so
+    the caller can point the user at the folder setting; a missing per-firm
+    folder is skipped rather than raised, since most firms won't have one.
+    """
+    firme = database.list_firme()
+
+    if folder is not None:
+        root = Path(folder)
+        if not root.is_dir():
+            raise FileNotFoundError(root)
+        candidates = _scan_folder(root, firme)
+        candidates.sort(key=lambda c: (c.resolved, str(c.path)))
+        return candidates
+
+    seen: set[Path] = set()
+    candidates: list[Candidate] = []
+    any_dedicated = False
+    for firma in firme:
+        if not firma["folder_sursa"]:
+            continue
+        dedicated = Path(firma["folder_sursa"])
+        if not dedicated.is_dir():
+            continue
+        any_dedicated = True
+        for cand in _scan_folder(dedicated, firme, preset_firma=firma):
+            if cand.path.resolve() not in seen:
+                seen.add(cand.path.resolve())
+                candidates.append(cand)
+
+    # The shared folder still matches against EVERY firm — having a dedicated
+    # folder must not make a firm unrecognizable in the shared one.
+    shared = database.get_source_folder()
+    if shared.is_dir():
+        for cand in _scan_folder(shared, firme):
+            if cand.path.resolve() not in seen:
+                seen.add(cand.path.resolve())
+                candidates.append(cand)
+    elif not any_dedicated:
+        raise FileNotFoundError(shared)
 
     candidates.sort(key=lambda c: (c.resolved, str(c.path)))
     return candidates

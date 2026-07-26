@@ -116,14 +116,20 @@ class UploadDialog(QDialog):
 
     def _rescan(self) -> None:
         source = database.get_source_folder()
-        self.folder_label.setText(f"Folder sursă:  {source}")
+        self.folder_label.setText(
+            f"Folder sursă implicit:  {source}\n"
+            "(firmele cu folder dedicat, setat în „Editează firma”, sunt "
+            "incluse automat)")
         try:
-            self._candidates = upload_scanner.scan(source)
+            # No explicit path: combines every firm's dedicated folder with
+            # the shared one above, so per-firm overrides are picked up too.
+            self._candidates = upload_scanner.scan()
         except FileNotFoundError:
             self._candidates = []
             self.status.setText(
-                "⚠  Folderul sursă nu există. Alegeți folderul care conține "
-                "declarațiile semnate.")
+                "⚠  Niciun folder sursă nu există — nici cel implicit, nici "
+                "vreun folder dedicat unei firme. Alegeți folderul implicit "
+                "sau setați unul per firmă din „Editează firma”.")
             self.table.setRowCount(0)
             self._refresh_send_button()
             return

@@ -12,7 +12,8 @@ from datetime import date
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QHeaderView, QLabel,
-                               QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+                               QPushButton, QTableWidget, QTableWidgetItem,
+                               QVBoxLayout, QWidget)
 
 import database
 from config import DECLARATION_TYPES, MONTHS_LONG, YEARS
@@ -55,6 +56,11 @@ class OverviewTab(QWidget):
         hint = QLabel("Click pe o celulă pentru a deschide firma în primul tab")
         hint.setProperty("role", "section-title")
         top.addWidget(hint)
+
+        refresh_btn = QPushButton("🔄  Reîmprospătează")
+        refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        refresh_btn.clicked.connect(self.refresh)
+        top.addWidget(refresh_btn)
         layout.addLayout(top)
 
         self.table = QTableWidget()

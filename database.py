@@ -17,7 +17,8 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS firme (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     nume_firma  TEXT NOT NULL,
-    cui         TEXT NOT NULL UNIQUE
+    cui         TEXT NOT NULL UNIQUE,
+    folder_sursa TEXT
 );
 
 CREATE TABLE IF NOT EXISTS declaratii_status (
@@ -60,6 +61,7 @@ def init_db() -> None:
     with get_connection() as conn:
         conn.executescript(SCHEMA)
         _migrate_anaf_columns(conn)
+        _migrate_firma_folder(conn)
         empty = conn.execute("SELECT COUNT(*) FROM firme").fetchone()[0] == 0
         if not empty:
             _migrate_firma_tipuri(conn)
@@ -74,6 +76,13 @@ def _migrate_anaf_columns(conn: sqlite3.Connection) -> None:
     for column in ("index_incarcare", "stare_validare"):
         if column not in existing:
             conn.execute(f"ALTER TABLE declaratii_status ADD COLUMN {column} TEXT")
+
+
+def _migrate_firma_folder(conn: sqlite3.Connection) -> None:
+    """Add the per-firm source-folder override to DBs created before it existed."""
+    existing = {r["name"] for r in conn.execute("PRAGMA table_info(firme)").fetchall()}
+    if "folder_sursa" not in existing:
+        conn.execute("ALTER TABLE firme ADD COLUMN folder_sursa TEXT")
 
 
 def _migrate_firma_tipuri(conn: sqlite3.Connection) -> None:
@@ -135,7 +144,8 @@ def set_source_folder(path: Path | str) -> None:
 def list_firme() -> list[sqlite3.Row]:
     with get_connection() as conn:
         return conn.execute(
-            "SELECT id, nume_firma, cui FROM firme ORDER BY nume_firma COLLATE NOCASE"
+            "SELECT id, nume_firma, cui, folder_sursa FROM firme "
+            "ORDER BY nume_firma COLLATE NOCASE"
         ).fetchall()
 
 
@@ -153,6 +163,33 @@ def update_firma(firma_id: int, nume: str, cui: str) -> None:
         conn.execute(
             "UPDATE firme SET nume_firma = ?, cui = ? WHERE id = ?",
             (nume.strip(), cui.strip(), firma_id),
+        )
+
+
+def delete_firma(firma_id: int) -> None:
+    """Delete a firm and everything derived from it (statuses, applicable
+    types) via the ON DELETE CASCADE foreign keys. Does not touch archived
+    PDFs on disk."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM firme WHERE id = ?", (firma_id,))
+
+
+def get_firma_source_folder(firma_id: int) -> Path | None:
+    """Per-firm override of the source folder, or None to use the global one
+    (see database.get_source_folder)."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT folder_sursa FROM firme WHERE id = ?", (firma_id,)
+        ).fetchone()
+    return Path(row["folder_sursa"]) if row and row["folder_sursa"] else None
+
+
+def set_firma_source_folder(firma_id: int, path: Path | str | None) -> None:
+    """Set or clear (path=None) the per-firm source-folder override."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE firme SET folder_sursa = ? WHERE id = ?",
+            (str(path) if path else None, firma_id),
         )
 
 
