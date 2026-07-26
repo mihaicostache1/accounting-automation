@@ -1,0 +1,40 @@
+name: Build Windows executable
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      # --onedir (folder build) instead of --onefile: single-file builds
+      # self-extract to %TEMP% at startup, which Windows Defender's heuristics
+      # regularly flag as a trojan — the exe gets quarantined and "disappears".
+      - name: Build with PyInstaller
+        run: >
+          pyinstaller --noconfirm --clean --onedir --windowed --noupx
+          --name declaut main.py
+
+      - name: Zip the build
+        run: Compress-Archive -Path dist\declaut -DestinationPath dist\declaut-windows.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: declaut-windows
+          path: dist\declaut-windows.zip
