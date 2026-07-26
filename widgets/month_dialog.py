@@ -10,14 +10,18 @@ from __future__ import annotations
 
 import sqlite3
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QDialog, QFileDialog, QHBoxLayout, QLabel, QMenu,
-                               QMessageBox, QPushButton, QToolButton, QVBoxLayout)
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtWidgets import (QDialog, QFileDialog, QHBoxLayout, QLabel,
+                               QLineEdit, QMenu, QMessageBox, QPushButton,
+                               QToolButton, QVBoxLayout)
 
+import anaf_client
 import database
 import file_manager
+from anaf_service import CellJob, RecipisaWorker
 from config import MONTHS_LONG
-from theme import repolish
+from theme import GREEN, RED, repolish
 
 # (attribute prefix in the DB row, user-facing label)
 DOC_KINDS = [("declaratie", "Declarație"), ("recipisa", "Recipisă")]
@@ -68,10 +72,43 @@ class MonthDialog(QDialog):
 
             layout.addLayout(row)
 
+        # -- ANAF: index de încărcare + verificare recipisă ---------------- #
+        anaf_title = QLabel("ANAF — verificare recipisă")
+        anaf_title.setProperty("role", "section-title")
+        layout.addWidget(anaf_title)
+
+        index_row = QHBoxLayout()
+        index_row.setSpacing(6)
+        index_row.addWidget(QLabel("Index încărcare:"))
+        self.index_edit = QLineEdit()
+        self.index_edit.setPlaceholderText("ex. 1179071386")
+        self.index_edit.editingFinished.connect(self._save_index)
+        index_row.addWidget(self.index_edit, stretch=1)
+        layout.addLayout(index_row)
+
+        self.stare_label = QLabel("")
+        self.stare_label.setWordWrap(True)
+        layout.addWidget(self.stare_label)
+
+        anaf_row = QHBoxLayout()
+        anaf_row.setSpacing(6)
+        self.check_btn = QPushButton("🔄  Verifică și descarcă recipisa")
+        self.check_btn.setProperty("variant", "primary")
+        self.check_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.check_btn.clicked.connect(self._check_recipisa)
+        anaf_row.addWidget(self.check_btn, stretch=1)
+
+        folder_btn = QPushButton("📁  Deschide folderul")
+        folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        folder_btn.clicked.connect(self._open_folder)
+        anaf_row.addWidget(folder_btn)
+        layout.addLayout(anaf_row)
+
         close_btn = QPushButton("Închide")
         close_btn.clicked.connect(self.accept)
         layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
 
+        self._worker: RecipisaWorker | None = None
         self._refresh()
 
     # ------------------------------------------------------------------ state
@@ -91,6 +128,22 @@ class MonthDialog(QDialog):
             btn.setText(f"{label}  —  {'Depusă' if submitted else 'Lipsă'}")
             btn.setProperty("status", "ok" if submitted else "missing")
             repolish(btn)
+
+        row = database.get_status(self.firma["id"], self.tip, self.an, self.luna)
+        index = (row["index_incarcare"] or "") if row else ""
+        stare = row["stare_validare"] if row else None
+        if not self.index_edit.hasFocus():
+            self.index_edit.setText(index)
+        if stare:
+            label = anaf_client.STARE_LABELS.get(stare, stare)
+            color = {anaf_client.STARE_VALID: GREEN,
+                     anaf_client.STARE_ERORI: RED,
+                     anaf_client.STARE_INVALID: RED}.get(stare, "#8a6d1a")
+            self.stare_label.setText(f"Stare validare: {label}")
+            self.stare_label.setStyleSheet(f"color: {color}; font-weight: 600;")
+        else:
+            self.stare_label.setText("Stare validare: neverificată")
+            self.stare_label.setStyleSheet("color: #8a93a0;")
 
     # ---------------------------------------------------------------- actions
 
@@ -126,6 +179,51 @@ class MonthDialog(QDialog):
                                       **{status_col: 1, path_col: str(rel)})
         self.changed = True
         self._refresh()
+
+    # ----------------------------------------------------------------- ANAF
+
+    def _save_index(self) -> None:
+        row = database.get_status(self.firma["id"], self.tip, self.an, self.luna)
+        stored = (row["index_incarcare"] or "") if row else ""
+        typed = self.index_edit.text().strip()
+        if typed != stored:
+            database.update_status_fields(self.firma["id"], self.tip, self.an,
+                                          self.luna, index_incarcare=typed)
+            self.changed = True
+
+    def _check_recipisa(self) -> None:
+        self._save_index()
+        index = self.index_edit.text().strip()
+        if not index:
+            QMessageBox.information(
+                self, "Index lipsă",
+                "Introduceți indexul de încărcare primit la depunerea "
+                "declarației pe decl.anaf.mfinante.gov.ro.")
+            return
+        job = CellJob(self.firma["id"], self.firma["cui"], self.firma["nume_firma"],
+                      self.tip, self.an, self.luna, index)
+        self.check_btn.setEnabled(False)
+        self.check_btn.setText("Se verifică la ANAF…")
+        self._worker = RecipisaWorker([job], parent=self)
+        self._worker.completed.connect(self._on_check_done)
+        self._worker.start()
+
+    def _on_check_done(self, outcomes: list) -> None:
+        self.check_btn.setEnabled(True)
+        self.check_btn.setText("🔄  Verifică și descarcă recipisa")
+        self.changed = True
+        self._refresh()
+        outcome = outcomes[0]
+        if outcome.ok:
+            QMessageBox.information(self, "Rezultat ANAF", outcome.message)
+        else:
+            QMessageBox.warning(self, "Verificare eșuată", outcome.message)
+
+    def _open_folder(self) -> None:
+        folder = (database.get_base_folder() / file_manager.relative_doc_path(
+            self.firma["cui"], self.an, self.luna, self.tip, "recipisa")).parent
+        folder.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     def _toggle_status(self, kind: str) -> None:
         submitted, _ = self._current(kind)

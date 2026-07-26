@@ -48,8 +48,29 @@ verde (depusă) sau roșie (lipsă) pentru luna selectată, respectiv gri („�
 dacă declarația nu se aplică firmei. Tooltip-ul arată și statusul recipisei;
 click pe celulă sare la firma respectivă în Tab 1.
 
-**Toolbar**: „Adaugă firmă” (nume + CUI unic) și „Setări folder” (schimbă
-folderul de bază al documentelor; se salvează în baza de date).
+**Toolbar**: „Adaugă firmă” (nume + CUI unic), „Setări folder” (schimbă
+folderul de bază al documentelor; se salvează în baza de date) și „Verifică
+recipise ANAF” (vezi mai jos).
+
+## Verificarea automată a recipiselor ANAF
+
+După depunerea unei declarații pe `decl.anaf.mfinante.gov.ro` (WAS6DUS), ANAF
+returnează un **index de încărcare**. Introdu indexul în dialogul lunii
+(click pe celula lunii → câmpul „Index încărcare”), apoi apasă „Verifică și
+descarcă recipisa”: aplicația interoghează serviciul public
+`anaf.ro/StareD112` (nu necesită autentificare), salvează starea de validare
+(valid / erori de validare / în prelucrare) și descarcă automat recipisa PDF
+în structura de foldere, la locul ei (`.../[Tip]/recipisa.pdf`). Butonul
+„Deschide folderul” deschide folderul lunii direct din aplicație.
+
+Butonul din toolbar „🔄 Verifică recipise ANAF” verifică dintr-o singură
+apăsare **toate** declarațiile care au index dar nu au încă recipisă (sau sunt
+încă „în prelucrare”) — o singură interogare per firmă — și afișează un sumar.
+
+Note: ANAF păstrează recipisa doar 60 de zile de la depunere, iar serviciul
+acoperă doar declarațiile din ultimele 3 luni — de aceea descărcarea și
+arhivarea automată sunt importante. Modulele implicate: `anaf_client.py`
+(HTTP + parsare, fără dependențe noi) și `anaf_service.py` (rulare în fundal).
 
 
 ## Organizarea fișierelor pe disc
@@ -82,6 +103,8 @@ main.py               # fereastra principală, tab-uri, toolbar
 config.py             # constante (tipuri de declarații, ani, luni, foldere)
 database.py           # schema SQLite, interogări, date demo
 file_manager.py       # organizarea folderelor, import și deschidere PDF
+anaf_client.py        # client HTTP pentru anaf.ro/StareD112 (stare + recipisă)
+anaf_service.py       # worker de fundal: verificare stări, descărcare recipise
 theme.py              # tema light (QSS) + culori de status
 widgets/
   company_tab.py      # Tab 1: matricea pe firmă

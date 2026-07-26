@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS declaratii_status (
     path_declaratie   TEXT,
     status_recipisa   INTEGER NOT NULL DEFAULT 0,
     path_recipisa     TEXT,
+    index_incarcare   TEXT,
+    stare_validare    TEXT,
     UNIQUE (firma_id, tip_declaratie, an, luna)
 );
 
@@ -56,11 +58,21 @@ def init_db() -> None:
     """Create the schema, migrate older DBs and seed mock data on first run."""
     with get_connection() as conn:
         conn.executescript(SCHEMA)
+        _migrate_anaf_columns(conn)
         empty = conn.execute("SELECT COUNT(*) FROM firme").fetchone()[0] == 0
         if not empty:
             _migrate_firma_tipuri(conn)
     if empty:
         seed_mock_data()
+
+
+def _migrate_anaf_columns(conn: sqlite3.Connection) -> None:
+    """Add the ANAF tracking columns to DBs created before they existed."""
+    existing = {r["name"] for r in
+                conn.execute("PRAGMA table_info(declaratii_status)").fetchall()}
+    for column in ("index_incarcare", "stare_validare"):
+        if column not in existing:
+            conn.execute(f"ALTER TABLE declaratii_status ADD COLUMN {column} TEXT")
 
 
 def _migrate_firma_tipuri(conn: sqlite3.Connection) -> None:
@@ -204,8 +216,9 @@ def get_month_overview(an: int, luna: int) -> dict[tuple[int, str], tuple[bool, 
 
 def update_status_fields(firma_id: int, tip: str, an: int, luna: int, **fields) -> None:
     """Upsert one cell, setting any of: status_declaratie, path_declaratie,
-    status_recipisa, path_recipisa."""
-    allowed = {"status_declaratie", "path_declaratie", "status_recipisa", "path_recipisa"}
+    status_recipisa, path_recipisa, index_incarcare, stare_validare."""
+    allowed = {"status_declaratie", "path_declaratie", "status_recipisa",
+               "path_recipisa", "index_incarcare", "stare_validare"}
     bad = set(fields) - allowed
     if bad:
         raise ValueError(f"Unknown status fields: {bad}")
@@ -219,6 +232,20 @@ def update_status_fields(firma_id: int, tip: str, an: int, luna: int, **fields) 
             f"ON CONFLICT(firma_id, tip_declaratie, an, luna) DO UPDATE SET {updates}",
             (firma_id, tip, an, luna, *fields.values()),
         )
+
+
+def list_pending_recipise() -> list[sqlite3.Row]:
+    """Cells that have an ANAF index but no downloaded recipisa yet, or whose
+    last known state is still 'in prelucrare' — the bulk-check work list."""
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT ds.*, f.cui, f.nume_firma FROM declaratii_status ds "
+            "JOIN firme f ON f.id = ds.firma_id "
+            "WHERE ds.index_incarcare IS NOT NULL AND ds.index_incarcare != '' "
+            "AND (ds.status_recipisa = 0 OR ds.path_recipisa IS NULL "
+            "     OR ds.stare_validare IS NULL OR ds.stare_validare = 'in_prelucrare') "
+            "ORDER BY f.nume_firma COLLATE NOCASE, ds.an, ds.luna",
+        ).fetchall()
 
 
 # --------------------------------------------------------------------------- #

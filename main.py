@@ -13,10 +13,11 @@ import sys
 from pathlib import Path
 
 from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog, QMainWindow,
-                               QTabWidget, QToolBar)
+                               QMessageBox, QTabWidget, QToolBar)
 
 import database
-from config import APP_NAME
+from anaf_service import CellJob, RecipisaWorker
+from config import APP_NAME, MONTHS_SHORT
 from theme import LIGHT_QSS
 from widgets.company_dialog import CompanyDialog
 from widgets.company_tab import CompanyTab
@@ -33,7 +34,10 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         toolbar.addAction("➕  Adaugă firmă", self._add_company)
         toolbar.addAction("📁  Setări folder", self._choose_base_folder)
+        self._check_action = toolbar.addAction("🔄  Verifică recipise ANAF",
+                                               self._check_all_recipise)
         self.addToolBar(toolbar)
+        self._recipisa_worker: RecipisaWorker | None = None
 
         self.tabs = QTabWidget()
         self.company_tab = CompanyTab()
@@ -64,6 +68,45 @@ class MainWindow(QMainWindow):
         if folder:
             database.set_base_folder(folder)
             self._update_status_bar()
+
+    def _check_all_recipise(self) -> None:
+        """Query ANAF for every declaration that has an index but no recipisa
+        (or is still 'in prelucrare'), download the PDFs and show a summary."""
+        pending = database.list_pending_recipise()
+        if not pending:
+            QMessageBox.information(
+                self, "Nimic de verificat",
+                "Nicio declarație cu index de încărcare nu așteaptă recipisă.\n"
+                "Introduceți indexul în dialogul lunii (click pe o celulă).")
+            return
+        jobs = [CellJob(r["firma_id"], r["cui"], r["nume_firma"],
+                        r["tip_declaratie"], r["an"], r["luna"],
+                        r["index_incarcare"]) for r in pending]
+        self._check_action.setEnabled(False)
+        self._recipisa_worker = RecipisaWorker(jobs, parent=self)
+        self._recipisa_worker.progress.connect(self.statusBar().showMessage)
+        self._recipisa_worker.completed.connect(self._on_recipise_checked)
+        self._recipisa_worker.start()
+
+    def _on_recipise_checked(self, outcomes: list) -> None:
+        self._check_action.setEnabled(True)
+        self._update_status_bar()
+        self.company_tab.refresh_matrix()
+        self.overview_tab.refresh()
+
+        downloaded = sum(1 for o in outcomes if o.recipisa_downloaded)
+        failed = sum(1 for o in outcomes if not o.ok)
+        lines = [
+            f"{o.job.nume_firma} — {o.job.tip} "
+            f"{MONTHS_SHORT[o.job.luna - 1]} {o.job.an}: {o.message}"
+            for o in outcomes]
+        box = QMessageBox(self)
+        box.setWindowTitle("Verificare recipise ANAF")
+        box.setIcon(QMessageBox.Icon.Warning if failed else QMessageBox.Icon.Information)
+        box.setText(f"Verificate: {len(outcomes)}  ·  "
+                    f"Recipise descărcate: {downloaded}  ·  Eșuate: {failed}")
+        box.setDetailedText("\n".join(lines))
+        box.exec()
 
     def _goto_company(self, firma_id: int, tip: str) -> None:
         self.company_tab.select_company_and_type(firma_id, tip)
