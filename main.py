@@ -22,6 +22,7 @@ from theme import LIGHT_QSS
 from widgets.company_dialog import CompanyDialog
 from widgets.company_tab import CompanyTab
 from widgets.overview_tab import OverviewTab
+from widgets.upload_dialog import UploadDialog
 
 
 class MainWindow(QMainWindow):
@@ -34,6 +35,7 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         toolbar.addAction("➕  Adaugă firmă", self._add_company)
         toolbar.addAction("📁  Setări folder", self._choose_base_folder)
+        toolbar.addAction("⬆  Trimite la ANAF", self._upload_declarations)
         self._check_action = toolbar.addAction("🔄  Verifică recipise ANAF",
                                                self._check_all_recipise)
         self.addToolBar(toolbar)
@@ -68,6 +70,17 @@ class MainWindow(QMainWindow):
         if folder:
             database.set_base_folder(folder)
             self._update_status_bar()
+
+    def _upload_declarations(self) -> None:
+        """Review the source folder and send the chosen declarations to ANAF.
+
+        Successful uploads archive the PDF and store the index, so the tabs and
+        the recipisa poller both pick the new cells up afterwards.
+        """
+        dialog = UploadDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.company_tab.refresh_matrix()
+            self.overview_tab.refresh()
 
     def _check_all_recipise(self) -> None:
         """Query ANAF for every declaration that has an index but no recipisa

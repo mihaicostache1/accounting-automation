@@ -1,0 +1,315 @@
+"""Review-and-send dialog for uploading declarations to ANAF.
+
+Three stages in one window, because the middle one needs the user to act:
+
+  1. Scan   — list every PDF in the source folder with the app's guesses.
+  2. Log in — open Chrome on the ANAF page so the user authenticates by hand.
+  3. Send   — upload only the rows that are ticked and fully resolved.
+
+Nothing is submitted until the user presses the send button: an upload to ANAF
+cannot be withdrawn, so a wrong guess must be correctable first. Rows the
+scanner could not resolve are shown but cannot be ticked.
+"""
+
+from __future__ import annotations
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (QComboBox, QDialog, QFileDialog, QHBoxLayout,
+                               QHeaderView, QLabel, QMessageBox, QProgressBar,
+                               QPushButton, QSpinBox, QTableWidget,
+                               QTableWidgetItem, QVBoxLayout)
+
+import anaf_uploader
+import database
+import upload_scanner
+from anaf_uploader import UploadJob, UploadWorker
+from config import DECLARATION_TYPES, MONTHS_LONG, YEARS
+
+# Table columns.
+COL_SEND, COL_FILE, COL_FIRMA, COL_TIP, COL_AN, COL_LUNA, COL_NOTE = range(7)
+HEADERS = ["Trimite", "Fișier", "Firmă", "Tip", "An", "Lună", "Observații"]
+
+
+class UploadDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Trimite declarații la ANAF")
+        self.setModal(True)
+        self.resize(1000, 560)
+
+        self._worker: UploadWorker | None = None
+        self._candidates: list[upload_scanner.Candidate] = []
+        self._firme = database.list_firme()
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(10)
+
+        title = QLabel("Declarații găsite în folderul sursă")
+        title.setProperty("role", "section-title")
+        layout.addWidget(title)
+
+        self.folder_label = QLabel()
+        self.folder_label.setWordWrap(True)
+        layout.addWidget(self.folder_label)
+
+        folder_row = QHBoxLayout()
+        folder_row.setSpacing(6)
+        change_btn = QPushButton("📁  Schimbă folderul sursă")
+        change_btn.clicked.connect(self._choose_folder)
+        rescan_btn = QPushButton("🔄  Rescanează")
+        rescan_btn.clicked.connect(self._rescan)
+        folder_row.addWidget(change_btn)
+        folder_row.addWidget(rescan_btn)
+        folder_row.addStretch(1)
+        layout.addLayout(folder_row)
+
+        self.table = QTableWidget(0, len(HEADERS))
+        self.table.setHorizontalHeaderLabels(HEADERS)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(COL_FILE, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(COL_NOTE, QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(self.table, stretch=1)
+
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        layout.addWidget(self.status)
+
+        self.progress = QProgressBar()
+        self.progress.setVisible(False)
+        layout.addWidget(self.progress)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(6)
+        self.login_btn = QPushButton("🌐  Deschide Chrome și autentifică-te")
+        self.login_btn.clicked.connect(self._open_browser)
+        self.restart_btn = QPushButton("♻  Repornește Chrome")
+        self.restart_btn.setToolTip(
+            "Închide și redeschide sesiunea Chrome a aplicației. Folosiți acest "
+            "buton dacă primiți eroarea „sesiune inutilizabilă”.")
+        self.restart_btn.clicked.connect(self._restart_browser)
+        self.send_btn = QPushButton("⬆  Trimite selecția la ANAF")
+        self.send_btn.setDefault(True)
+        self.send_btn.clicked.connect(self._send)
+        close_btn = QPushButton("Închide")
+        close_btn.clicked.connect(self.reject)
+        buttons.addWidget(self.login_btn)
+        buttons.addWidget(self.restart_btn)
+        buttons.addStretch(1)
+        buttons.addWidget(close_btn)
+        buttons.addWidget(self.send_btn)
+        layout.addLayout(buttons)
+
+        self._rescan()
+
+    # ---------------------------------------------------------------- scanning
+
+    def _choose_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(
+            self, "Alege folderul cu declarațiile de trimis",
+            str(database.get_source_folder()))
+        if folder:
+            database.set_source_folder(folder)
+            self._rescan()
+
+    def _rescan(self) -> None:
+        source = database.get_source_folder()
+        self.folder_label.setText(f"Folder sursă:  {source}")
+        try:
+            self._candidates = upload_scanner.scan(source)
+        except FileNotFoundError:
+            self._candidates = []
+            self.status.setText(
+                "⚠  Folderul sursă nu există. Alegeți folderul care conține "
+                "declarațiile semnate.")
+            self.table.setRowCount(0)
+            self._refresh_send_button()
+            return
+        self._populate()
+
+    def _populate(self) -> None:
+        self.table.setRowCount(len(self._candidates))
+        for row, cand in enumerate(self._candidates):
+            self._fill_row(row, cand)
+        resolved = sum(c.resolved for c in self._candidates)
+        total = len(self._candidates)
+        self.status.setText(
+            f"{total} fișiere PDF găsite · {resolved} recunoscute complet · "
+            f"{total - resolved} necesită completare (alegeți firma/perioada în tabel)."
+            if total else
+            "Nu am găsit fișiere PDF în folderul sursă.")
+        self._refresh_send_button()
+
+    def _fill_row(self, row: int, cand: upload_scanner.Candidate) -> None:
+        """One table row: a tick box plus editors that write back into `cand`."""
+        tick = QTableWidgetItem()
+        tick.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+        tick.setCheckState(Qt.CheckState.Checked if cand.resolved
+                           else Qt.CheckState.Unchecked)
+        self.table.setItem(row, COL_SEND, tick)
+
+        try:
+            shown = str(cand.path.relative_to(database.get_source_folder()))
+        except ValueError:
+            shown = cand.path.name
+        name_item = QTableWidgetItem(shown)
+        name_item.setToolTip(str(cand.path))
+        name_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        self.table.setItem(row, COL_FILE, name_item)
+
+        firma_box = QComboBox()
+        firma_box.addItem("— alege firma —", None)
+        for f in self._firme:
+            firma_box.addItem(f"{f['nume_firma']} ({f['cui']})", f["id"])
+        if cand.firma_id is not None:
+            firma_box.setCurrentIndex(firma_box.findData(cand.firma_id))
+        firma_box.currentIndexChanged.connect(
+            lambda _, c=cand, b=firma_box: self._set_firma(c, b))
+        self.table.setCellWidget(row, COL_FIRMA, firma_box)
+
+        tip_box = QComboBox()
+        tip_box.addItem("— tip —", None)
+        for tip in DECLARATION_TYPES:
+            tip_box.addItem(tip, tip)
+        if cand.tip:
+            tip_box.setCurrentIndex(tip_box.findData(cand.tip))
+        tip_box.currentIndexChanged.connect(
+            lambda _, c=cand, b=tip_box: self._set_field(c, "tip", b.currentData()))
+        self.table.setCellWidget(row, COL_TIP, tip_box)
+
+        an_spin = QSpinBox()
+        an_spin.setRange(min(YEARS) - 5, max(YEARS) + 5)
+        an_spin.setValue(cand.an or min(YEARS))
+        # A spin box cannot show "empty", so adopt the displayed year as the
+        # candidate's value — otherwise a row looks complete while `an` is still
+        # None and silently refuses to send.
+        cand.an = an_spin.value()
+        an_spin.valueChanged.connect(
+            lambda v, c=cand: self._set_field(c, "an", v))
+        self.table.setCellWidget(row, COL_AN, an_spin)
+
+        luna_box = QComboBox()
+        luna_box.addItem("— luna —", None)
+        for idx, name in enumerate(MONTHS_LONG, start=1):
+            luna_box.addItem(name, idx)
+        if cand.luna:
+            luna_box.setCurrentIndex(luna_box.findData(cand.luna))
+        luna_box.currentIndexChanged.connect(
+            lambda _, c=cand, b=luna_box: self._set_field(c, "luna", b.currentData()))
+        self.table.setCellWidget(row, COL_LUNA, luna_box)
+
+        note = QTableWidgetItem(" · ".join(cand.notes))
+        note.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        note.setToolTip("\n".join(cand.notes))
+        self.table.setItem(row, COL_NOTE, note)
+
+    def _set_firma(self, cand: upload_scanner.Candidate, box: QComboBox) -> None:
+        firma_id = box.currentData()
+        cand.firma_id = firma_id
+        match = next((f for f in self._firme if f["id"] == firma_id), None)
+        cand.nume_firma = match["nume_firma"] if match else None
+        cand.cui = match["cui"] if match else None
+        self._refresh_send_button()
+
+    def _set_field(self, cand: upload_scanner.Candidate, name: str, value) -> None:
+        setattr(cand, name, value)
+        self._refresh_send_button()
+
+    # ---------------------------------------------------------------- sending
+
+    def _checked(self) -> list[upload_scanner.Candidate]:
+        """Ticked rows that are also fully resolved — the actual upload set."""
+        out = []
+        for row, cand in enumerate(self._candidates):
+            item = self.table.item(row, COL_SEND)
+            if item and item.checkState() == Qt.CheckState.Checked and cand.resolved:
+                out.append(cand)
+        return out
+
+    def _refresh_send_button(self) -> None:
+        count = len(self._checked())
+        self.send_btn.setEnabled(count > 0 and self._worker is None)
+        self.send_btn.setText(
+            f"⬆  Trimite {count} la ANAF" if count else "⬆  Trimite selecția la ANAF")
+
+    def _restart_browser(self) -> None:
+        """Close and relaunch the app's Chrome — the remedy when a previous run
+        of the app left its debugging session unusable."""
+        anaf_uploader.close_browser()
+        self._open_browser()
+
+    def _open_browser(self) -> None:
+        try:
+            anaf_uploader.launch_browser()
+        except anaf_uploader.UploadError as exc:
+            QMessageBox.warning(self, "Chrome", str(exc))
+            return
+        QMessageBox.information(
+            self, "Autentificare ANAF",
+            "Chrome s-a deschis pe pagina ANAF.\n\n"
+            "Autentificați-vă cu certificatul/tokenul, apoi reveniți aici și "
+            "apăsați „Trimite la ANAF”.\n\n"
+            "Lăsați Chrome deschis în timpul trimiterii.")
+
+    def _send(self) -> None:
+        jobs_src = self._checked()
+        if not jobs_src:
+            return
+        if not anaf_uploader.debugger_ready():
+            QMessageBox.warning(
+                self, "Nu există sesiune ANAF",
+                "Chrome nu este pornit în modul necesar.\n\n"
+                "Apăsați „Deschide Chrome și autentifică-te”, autentificați-vă, "
+                "apoi încercați din nou.")
+            return
+
+        summary = "\n".join(
+            f"  • {c.nume_firma} — {c.tip} — {MONTHS_LONG[c.luna - 1]} {c.an}"
+            for c in jobs_src[:12])
+        if len(jobs_src) > 12:
+            summary += f"\n  … și încă {len(jobs_src) - 12}"
+        confirmed = QMessageBox.question(
+            self, "Confirmare trimitere",
+            f"Se vor trimite {len(jobs_src)} declarații la ANAF:\n\n{summary}\n\n"
+            "Trimiterea nu poate fi anulată. Continuați?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if confirmed != QMessageBox.StandardButton.Yes:
+            return
+
+        jobs = [UploadJob(path=c.path, firma_id=c.firma_id, cui=c.cui,
+                          nume_firma=c.nume_firma, tip=c.tip, an=c.an, luna=c.luna)
+                for c in jobs_src]
+
+        self.progress.setRange(0, 0)
+        self.progress.setVisible(True)
+        self._worker = UploadWorker(jobs, self)
+        self._worker.progress.connect(self.status.setText)
+        self._worker.completed.connect(self._finished)
+        self._refresh_send_button()
+        self._worker.start()
+
+    def _finished(self, outcomes) -> None:
+        self._worker = None
+        self.progress.setVisible(False)
+        sent = [o for o in outcomes if o.ok]
+        failed = [o for o in outcomes if not o.ok]
+
+        lines = [f"✅  {o.job.nume_firma} — {o.job.tip} — index {o.index}" for o in sent]
+        lines += [f"❌  {o.job.nume_firma} — {o.job.tip} — {o.message}" for o in failed]
+        self.status.setText(f"{len(sent)} trimise, {len(failed)} eșuate.")
+        QMessageBox.information(
+            self, "Rezultat trimitere",
+            f"{len(sent)} declarații trimise, {len(failed)} eșuate.\n\n"
+            + "\n".join(lines[:20])
+            + ("\n…" if len(lines) > 20 else ""))
+
+        # Uploaded files are now archived and carry an index; drop them from the
+        # list so a second press cannot resubmit the same declaration.
+        sent_paths = {o.job.path for o in sent}
+        self._candidates = [c for c in self._candidates if c.path not in sent_paths]
+        self._populate()
+        if sent:
+            self.accept()

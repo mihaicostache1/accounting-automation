@@ -10,7 +10,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from config import DB_PATH, DECLARATION_TYPES, DEFAULT_BASE_FOLDER, type_folder_name
+from config import (DB_PATH, DECLARATION_TYPES, DEFAULT_BASE_FOLDER,
+                    DEFAULT_SOURCE_FOLDER, type_folder_name)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS firme (
@@ -116,6 +117,15 @@ def get_base_folder() -> Path:
 
 def set_base_folder(path: Path | str) -> None:
     set_setting("base_folder", str(path))
+
+
+def get_source_folder() -> Path:
+    """Folder the app reads declarations from for uploading (see upload_scanner)."""
+    return Path(get_setting("source_folder", str(DEFAULT_SOURCE_FOLDER)))
+
+
+def set_source_folder(path: Path | str) -> None:
+    set_setting("source_folder", str(path))
 
 
 # --------------------------------------------------------------------------- #

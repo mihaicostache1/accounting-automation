@@ -29,6 +29,18 @@ DB_PATH = _data_dir() / "declaratii.db"
 # in the DB `settings` table and can be changed from the app (Setări folder).
 DEFAULT_BASE_FOLDER = Path.home() / "Declaratii_Firme"
 
+# Folder the app READS signed declarations from before uploading them to ANAF.
+# Distinct from DEFAULT_BASE_FOLDER, which is where the organized archive of
+# declarations and recipise is written. Also overridable from the app.
+DEFAULT_SOURCE_FOLDER = Path.home() / "Declaratii_de_trimis"
+
+# Chrome/Edge debugging port used to attach to the user's already-authenticated
+# ANAF session (see anaf_uploader). Fixed so a relaunch reuses the same channel.
+CHROME_DEBUG_PORT = 9222
+
+# ANAF's certificate-authenticated upload page for D112-family declarations.
+ANAF_UPLOAD_URL = "https://decl.anaf.mfinante.gov.ro/WAS6DUS"
+
 # Declaration types shown as toggle buttons (Tab 1) and columns (Tab 2).
 DECLARATION_TYPES = ["100", "112", "300", "390", "406", "Case de marcat"]
 
