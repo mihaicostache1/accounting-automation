@@ -28,9 +28,23 @@ pyinstaller --noconfirm --clean --onefile --windowed --name declaut main.py
 ```
 
 Rezultatul apare în `dist/`: pe macOS `declaut` (binar) și `declaut.app`
-(aplicația pentru dublu-click); pe Windows, aceeași comandă produce
-`dist\declaut.exe`. Executabilul se construiește pentru sistemul pe care rulezi
-comanda — un `.exe` de Windows se poate genera doar pe un PC cu Windows.
+(aplicația pentru dublu-click). Executabilul se construiește pentru sistemul pe
+care rulezi comanda — un `.exe` de Windows se poate genera doar pe un PC cu
+Windows sau prin workflow-ul GitHub Actions (`Build Windows executable`).
+
+**Windows:** folosește build „folder” (`--onedir`), nu `--onefile` — un exe
+unic nesemnat se auto-dezarhivează în `%TEMP%` la pornire, comportament pe
+care Windows Defender îl marchează frecvent ca fals pozitiv (exe-ul „dispare”
+în carantină la primul dublu-click):
+
+```bash
+pyinstaller --noconfirm --clean --onedir --windowed --noupx --name declaut main.py
+```
+
+Distribuie arhiva cu întreg folderul `dist\declaut`; utilizatorul îl extrage
+și rulează `declaut.exe` din folder (eventual cu un shortcut pe Desktop).
+Dacă Defender a șters deja un exe: Windows Security → Virus & threat
+protection → Protection history → Restore / Allow.
 
 ## Utilizare
 

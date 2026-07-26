@@ -22,13 +22,16 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      # --onedir (folder build) instead of --onefile: single-file builds
+      # self-extract to %TEMP% at startup, which Windows Defender's heuristics
+      # regularly flag as a trojan — the exe gets quarantined and "disappears".
       - name: Build with PyInstaller
         run: >
-          pyinstaller --noconfirm --onefile --windowed
+          pyinstaller --noconfirm --clean --onedir --windowed --noupx
           --name declaut main.py
 
       - name: Zip the build
-        run: Compress-Archive -Path dist\declaut.exe -DestinationPath dist\declaut-windows.zip
+        run: Compress-Archive -Path dist\declaut -DestinationPath dist\declaut-windows.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
