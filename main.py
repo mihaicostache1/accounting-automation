@@ -12,12 +12,13 @@ import shutil
 import sys
 from pathlib import Path
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog, QMainWindow,
                                QMessageBox, QTabWidget, QToolBar)
 
 import database
 from anaf_service import CellJob, RecipisaWorker
-from config import APP_NAME, MONTHS_SHORT
+from config import APP_ICON_PATH, APP_NAME, MONTHS_SHORT
 from theme import LIGHT_QSS
 from widgets.company_dialog import CompanyDialog
 from widgets.company_tab import CompanyTab
@@ -176,6 +177,8 @@ def main() -> int:
     database.init_db()
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+    if APP_ICON_PATH.is_file():
+        app.setWindowIcon(QIcon(str(APP_ICON_PATH)))
     app.setStyleSheet(LIGHT_QSS)
     window = MainWindow()
     window.show()

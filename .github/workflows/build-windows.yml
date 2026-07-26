@@ -28,6 +28,7 @@ jobs:
       - name: Build with PyInstaller
         run: >
           pyinstaller --noconfirm --clean --onedir --windowed --noupx
+          --icon assets\icon.ico --add-data "assets;assets"
           --name declaut main.py
 
       - name: Zip the build
@@ -45,6 +46,7 @@ jobs:
       - name: Build console (diagnostic) variant
         run: >
           pyinstaller --noconfirm --clean --onedir --console --noupx
+          --icon assets\icon.ico --add-data "assets;assets"
           --name declaut-debug main.py
 
       - name: Zip the diagnostic build

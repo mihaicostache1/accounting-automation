@@ -22,6 +22,12 @@ def _data_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
+# Read-only bundled resources (icons): next to the code in development, the
+# PyInstaller extraction dir (_MEIPASS -> _internal in onedir mode) when frozen.
+RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+
+APP_ICON_PATH = RESOURCE_DIR / "assets" / "icon.png"
+
 # SQLite database location (see _data_dir).
 DB_PATH = _data_dir() / "declaratii.db"
 
@@ -42,7 +48,7 @@ CHROME_DEBUG_PORT = 9222
 ANAF_UPLOAD_URL = "https://decl.anaf.mfinante.gov.ro/WAS6DUS"
 
 # Declaration types shown as toggle buttons (Tab 1) and columns (Tab 2).
-DECLARATION_TYPES = ["100", "112", "300", "390", "406", "Case de marcat"]
+DECLARATION_TYPES = ["100", "112", "300", "390", "394", "406", "Case de marcat"]
 
 # Years shown as rows in the Tab 1 matrix.
 YEARS = [2026, 2027, 2028]
