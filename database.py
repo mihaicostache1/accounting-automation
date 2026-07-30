@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS firme (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     nume_firma  TEXT NOT NULL,
     cui         TEXT NOT NULL UNIQUE,
-    folder_sursa TEXT
+    folder_sursa TEXT,
+    periodicitate TEXT NOT NULL DEFAULT 'lunar'
 );
 
 CREATE TABLE IF NOT EXISTS declaratii_status (
@@ -79,10 +80,14 @@ def _migrate_anaf_columns(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_firma_folder(conn: sqlite3.Connection) -> None:
-    """Add the per-firm source-folder override to DBs created before it existed."""
+    """Add per-firm columns (source-folder override, VAT periodicity) to DBs
+    created before they existed."""
     existing = {r["name"] for r in conn.execute("PRAGMA table_info(firme)").fetchall()}
     if "folder_sursa" not in existing:
         conn.execute("ALTER TABLE firme ADD COLUMN folder_sursa TEXT")
+    if "periodicitate" not in existing:
+        conn.execute("ALTER TABLE firme ADD COLUMN periodicitate TEXT "
+                     "NOT NULL DEFAULT 'lunar'")
 
 
 def _migrate_firma_tipuri(conn: sqlite3.Connection) -> None:
@@ -144,7 +149,7 @@ def set_source_folder(path: Path | str) -> None:
 def list_firme() -> list[sqlite3.Row]:
     with get_connection() as conn:
         return conn.execute(
-            "SELECT id, nume_firma, cui, folder_sursa FROM firme "
+            "SELECT id, nume_firma, cui, folder_sursa, periodicitate FROM firme "
             "ORDER BY nume_firma COLLATE NOCASE"
         ).fetchall()
 
@@ -191,6 +196,15 @@ def set_firma_source_folder(firma_id: int, path: Path | str | None) -> None:
             "UPDATE firme SET folder_sursa = ? WHERE id = ?",
             (str(path) if path else None, firma_id),
         )
+
+
+def set_firma_periodicitate(firma_id: int, periodicitate: str) -> None:
+    """'lunar' or 'trimestrial' — applies to the PERIODIC_TYPES group."""
+    if periodicitate not in ("lunar", "trimestrial"):
+        raise ValueError(f"Periodicitate necunoscută: {periodicitate!r}")
+    with get_connection() as conn:
+        conn.execute("UPDATE firme SET periodicitate = ? WHERE id = ?",
+                     (periodicitate, firma_id))
 
 
 def get_firma_tipuri(firma_id: int) -> list[str]:

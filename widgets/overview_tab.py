@@ -18,7 +18,8 @@ from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QHeaderView, QLabel,
 
 import anaf_client
 import database
-from config import DECLARATION_TYPES, MONTHS_LONG, YEARS
+from config import (DECLARATION_TYPES, MONTHS_LONG, PERIODIC_TYPES,
+                    QUARTER_MONTHS, YEARS)
 from theme import GRAY_BG, GRAY_TEXT, GREEN, RED, YELLOW, YELLOW_TEXT
 
 
@@ -96,13 +97,22 @@ class OverviewTab(QWidget):
 
             applicable = self._tipuri.get(firma["id"], set())
             for col, tip in enumerate(DECLARATION_TYPES, start=2):
-                if tip not in applicable:
-                    # Declaration type does not apply to this firm -> gray cell.
+                not_applicable = tip not in applicable
+                off_quarter = (not not_applicable
+                               and tip in PERIODIC_TYPES
+                               and firma["periodicitate"] == "trimestrial"
+                               and luna not in QUARTER_MONTHS)
+                if not_applicable or off_quarter:
+                    # Gray cell: type not applicable, or quarterly filer in a
+                    # month where this type simply does not exist.
                     item = QTableWidgetItem("—")
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     item.setBackground(QBrush(QColor(GRAY_BG)))
                     item.setForeground(QBrush(QColor(GRAY_TEXT)))
-                    item.setToolTip(f"{tip} — nu se aplică acestei firme")
+                    item.setToolTip(
+                        f"{tip} — nu se aplică acestei firme" if not_applicable
+                        else f"{tip} — trimestrial: se depune doar în "
+                             "Mar / Iun / Sep / Dec")
                 else:
                     decl_ok, rec_ok, stare = statuses.get(
                         (firma["id"], tip), (False, False, None))
@@ -131,7 +141,11 @@ class OverviewTab(QWidget):
             return
         firma = self._firme[row]
         tip = DECLARATION_TYPES[col - 2]
-        # Gray (non-applicable) cells are not navigable.
+        # Gray cells (non-applicable, or off-quarter for trimestrial firms)
+        # are not navigable.
         if tip not in self._tipuri.get(firma["id"], set()):
+            return
+        if (tip in PERIODIC_TYPES and firma["periodicitate"] == "trimestrial"
+                and self.month_combo.currentData() not in QUARTER_MONTHS):
             return
         self.cell_activated.emit(firma["id"], tip)

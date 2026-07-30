@@ -13,7 +13,37 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFileDialog
                                QLineEdit, QMessageBox, QPushButton, QWidget)
 
 import database
-from config import DECLARATION_TYPES
+from config import DECLARATION_TYPES, PERIODIC_TYPES
+
+
+class PeriodicityDialog(QDialog):
+    """Lunar sau trimestrial pentru grupul 300/394/406.
+
+    One click chooses and closes — no OK step, per the requested flow. Closing
+    the window instead leaves `choice` as None (caller keeps the old value).
+    """
+
+    def __init__(self, parent, current: str):
+        super().__init__(parent)
+        self.choice: str | None = None
+        self.setWindowTitle("Periodicitate 300 / 394 / 406")
+        self.setModal(True)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(10)
+        for value, label in (("lunar", "Lunar"), ("trimestrial", "Trimestrial")):
+            btn = QPushButton(label)
+            btn.setMinimumSize(140, 48)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            if value == current:
+                btn.setProperty("variant", "primary")
+            btn.clicked.connect(lambda _=False, v=value: self._pick(v))
+            layout.addWidget(btn)
+
+    def _pick(self, value: str) -> None:
+        self.choice = value
+        self.accept()
 
 
 class CompanyDialog(QDialog):
@@ -61,6 +91,7 @@ class CompanyDialog(QDialog):
         # selection when editing.
         selected = (set(database.get_firma_tipuri(firma["id"])) if firma
                     else set(DECLARATION_TYPES))
+        self._periodicitate: str = firma["periodicitate"] if firma else "lunar"
         types_box = QGroupBox("Declarații aplicabile")
         types_grid = QGridLayout(types_box)
         types_grid.setContentsMargins(14, 18, 14, 12)
@@ -70,6 +101,9 @@ class CompanyDialog(QDialog):
             check.setChecked(tip in selected)
             self.type_checks[tip] = check
             types_grid.addWidget(check, i // 3, i % 3)
+        # Ticking 300 asks lunar/trimestrial; the answer is copied to 394/406.
+        self.type_checks["300"].clicked.connect(self._on_300_clicked)
+        self._refresh_periodic_labels()
         form.addRow(types_box)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
@@ -95,6 +129,21 @@ class CompanyDialog(QDialog):
             form.addRow(bottom_row)
         else:
             form.addRow(buttons)
+
+    def _on_300_clicked(self, checked: bool) -> None:
+        if not checked:
+            return
+        dialog = PeriodicityDialog(self, self._periodicitate)
+        dialog.exec()
+        if dialog.choice:
+            self._periodicitate = dialog.choice
+            self._refresh_periodic_labels()
+
+    def _refresh_periodic_labels(self) -> None:
+        """Show the shared periodicity on 300, 394 and 406 alike, so it is
+        visible that one choice drives all three."""
+        for tip in PERIODIC_TYPES:
+            self.type_checks[tip].setText(f"{tip} · {self._periodicitate}")
 
     def _choose_source_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(
@@ -147,4 +196,5 @@ class CompanyDialog(QDialog):
             return
         database.set_firma_tipuri(firma_id, tipuri)
         database.set_firma_source_folder(firma_id, self._source_folder)
+        database.set_firma_periodicitate(firma_id, self._periodicitate)
         self.accept()

@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDialog, QGridLayout,
 
 import anaf_client
 import database
-from config import MONTHS_LONG, MONTHS_SHORT, YEARS
+from config import MONTHS_LONG, MONTHS_SHORT, PERIODIC_TYPES, QUARTER_MONTHS, YEARS
 from theme import repolish
 from widgets.company_dialog import CompanyDialog
 from widgets.month_dialog import MonthDialog
@@ -180,7 +180,15 @@ class CompanyTab(QWidget):
                 repolish(cell)
             return
         matrix = database.get_type_matrix(firma["id"], tip)
+        trimestrial = (tip in PERIODIC_TYPES
+                       and firma["periodicitate"] == "trimestrial")
         for (year, luna), cell in self._cells.items():
+            if trimestrial and luna not in QUARTER_MONTHS:
+                # Quarterly filer: this type only exists in Mar/Iun/Sep/Dec.
+                cell.setEnabled(False)
+                cell.setProperty("status", "na")
+                repolish(cell)
+                continue
             submitted, stare = matrix.get((year, luna), (False, None))
             cell.setEnabled(True)
             if submitted and anaf_client.are_erori(stare):

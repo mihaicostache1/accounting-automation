@@ -50,6 +50,13 @@ ANAF_UPLOAD_URL = "https://decl.anaf.mfinante.gov.ro/WAS6DUS"
 # Declaration types shown as toggle buttons (Tab 1) and columns (Tab 2).
 DECLARATION_TYPES = ["100", "112", "300", "390", "394", "406", "Case de marcat"]
 
+# Types that follow the firm's VAT periodicity: choosing lunar/trimestrial for
+# 300 in the firm dialog applies the same to 394 and 406.
+PERIODIC_TYPES = ("300", "394", "406")
+
+# A quarterly declaration is recorded under the last month of its quarter.
+QUARTER_MONTHS = (3, 6, 9, 12)
+
 # Years shown as rows in the Tab 1 matrix.
 YEARS = [2026, 2027, 2028]
 
