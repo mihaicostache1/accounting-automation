@@ -22,6 +22,7 @@ from config import APP_ICON_PATH, APP_NAME, MONTHS_SHORT
 from theme import LIGHT_QSS
 from widgets.company_dialog import CompanyDialog
 from widgets.company_tab import CompanyTab
+from widgets.import_dialog import ImportDialog
 from widgets.overview_tab import OverviewTab
 from widgets.upload_dialog import UploadDialog
 
@@ -35,6 +36,7 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("Acțiuni")
         toolbar.setMovable(False)
         toolbar.addAction("➕  Adaugă firmă", self._add_company)
+        toolbar.addAction("📥  Importă din Excel", self._import_from_excel)
         toolbar.addAction("📁  Setări folder", self._choose_base_folder)
         toolbar.addAction("⬆  Trimite la ANAF", self._upload_declarations)
         self._check_action = toolbar.addAction("🔄  Verifică recipise ANAF",
@@ -61,6 +63,13 @@ class MainWindow(QMainWindow):
     def _add_company(self) -> None:
         dialog = CompanyDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.company_tab.reload_companies()
+            self.overview_tab.refresh()
+
+    def _import_from_excel(self) -> None:
+        dialog = ImportDialog(self)
+        dialog.exec()
+        if dialog.imported:
             self.company_tab.reload_companies()
             self.overview_tab.refresh()
 
