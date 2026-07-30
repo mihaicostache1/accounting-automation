@@ -25,6 +25,9 @@ STARE_ERORI = "erori"
 STARE_IN_PRELUCRARE = "in_prelucrare"
 STARE_INVALID = "invalid"
 STARE_NECUNOSCUT = "necunoscut"
+# Not an ANAF state: recorded by the app when the stored index is absent from
+# ANAF's answer for that CIF (wrong index, wrong CIF, or older than 3 months).
+STARE_NEGASIT = "negasit"
 
 STARE_LABELS = {
     STARE_VALID: "Documentul este valid",
@@ -32,13 +35,28 @@ STARE_LABELS = {
     STARE_IN_PRELUCRARE: "În prelucrare",
     STARE_INVALID: "Fișierul depus nu este un document valid",
     STARE_NECUNOSCUT: "Stare necunoscută",
+    STARE_NEGASIT: "Indexul nu apare în lista ANAF",
+}
+
+# Short forms for buttons and cells, where the full sentence does not fit.
+STARE_SCURT = {
+    STARE_VALID: "Validă",
+    STARE_ERORI: "Erori de validare",
+    STARE_IN_PRELUCRARE: "În prelucrare",
+    STARE_INVALID: "Fișier invalid",
+    STARE_NEGASIT: "Index negăsit",
+    STARE_NECUNOSCUT: "Stare necunoscută",
 }
 
 
 def are_erori(stare: str | None) -> bool:
-    """True when the ANAF state means the submission failed validation —
-    the yellow 'needs attention' color in the UI."""
-    return stare in (STARE_ERORI, STARE_INVALID)
+    """True when the submission needs attention — failed ANAF validation, or
+    an index ANAF does not recognize. Drives the yellow color in the UI.
+
+    Deliberately excludes transient trouble (network errors): those say
+    nothing about the declaration itself and must not repaint the table.
+    """
+    return stare in (STARE_ERORI, STARE_INVALID, STARE_NEGASIT)
 
 
 class AnafError(Exception):

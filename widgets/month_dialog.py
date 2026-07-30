@@ -20,7 +20,7 @@ import database
 import file_manager
 from anaf_service import CellJob, RecipisaWorker
 from config import MONTHS_LONG
-from theme import GREEN, RED, repolish
+from theme import GREEN, YELLOW_TEXT, repolish
 
 # (attribute prefix in the DB row, user-facing label)
 DOC_KINDS = [("declaratie", "Declarație"), ("recipisa", "Recipisă")]
@@ -118,7 +118,8 @@ class MonthDialog(QDialog):
             # Validation errors trump "Depusă": the recipisa on disk is ANAF's
             # rejection, so green would wrongly signal that everything is fine.
             if kind == "recipisa" and anaf_client.are_erori(stare):
-                btn.setText(f"{label}  —  Erori de validare")
+                btn.setText(f"{label}  —  "
+                            f"{anaf_client.STARE_SCURT.get(stare, 'Problemă')}")
                 btn.setProperty("status", "warn")
             else:
                 btn.setText(f"{label}  —  {'Depusă' if submitted else 'Lipsă'}")
@@ -128,9 +129,10 @@ class MonthDialog(QDialog):
             self.index_edit.setText(index)
         if stare:
             label = anaf_client.STARE_LABELS.get(stare, stare)
-            color = {anaf_client.STARE_VALID: GREEN,
-                     anaf_client.STARE_ERORI: RED,
-                     anaf_client.STARE_INVALID: RED}.get(stare, "#8a6d1a")
+            # Amber for anything needing attention, matching the table cells.
+            color = (GREEN if stare == anaf_client.STARE_VALID
+                     else YELLOW_TEXT if anaf_client.are_erori(stare)
+                     else "#8a6d1a")
             self.stare_label.setText(f"Stare validare: {label}")
             self.stare_label.setStyleSheet(f"color: {color}; font-weight: 600;")
         else:
@@ -171,8 +173,11 @@ class MonthDialog(QDialog):
         stored = (row["index_incarcare"] or "") if row else ""
         typed = self.index_edit.text().strip()
         if typed != stored:
+            # The stored state describes the OLD index; keeping it would leave
+            # a corrected index still showing "index negăsit" until rechecked.
             database.update_status_fields(self.firma["id"], self.tip, self.an,
-                                          self.luna, index_incarcare=typed)
+                                          self.luna, index_incarcare=typed,
+                                          stare_validare=None)
             self.changed = True
 
     def _check_recipisa(self) -> None:

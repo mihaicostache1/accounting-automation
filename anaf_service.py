@@ -95,8 +95,14 @@ class RecipisaWorker(QThread):
             for job in jobs:
                 status = by_index.get(str(job.index).strip())
                 if status is None:
+                    # Store it: unlike a network error, an index ANAF does not
+                    # know about is a real problem with this declaration, and
+                    # the matrices must show it instead of a reassuring green.
+                    database.update_status_fields(
+                        job.firma_id, job.tip, job.an, job.luna,
+                        stare_validare=anaf_client.STARE_NEGASIT)
                     outcomes.append(CellOutcome(
-                        job, False, None,
+                        job, False, anaf_client.STARE_NEGASIT,
                         "Indexul nu apare în lista ANAF (verificați indexul și "
                         "CIF-ul; serviciul acoperă doar ultimele 3 luni)."))
                     continue
