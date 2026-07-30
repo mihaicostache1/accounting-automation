@@ -133,6 +133,15 @@ def set_base_folder(path: Path | str) -> None:
     set_setting("base_folder", str(path))
 
 
+def get_auto_recipise() -> bool:
+    """Whether the app polls ANAF for recipise on its own (see MainWindow)."""
+    return get_setting("auto_recipise", "1") == "1"
+
+
+def set_auto_recipise(enabled: bool) -> None:
+    set_setting("auto_recipise", "1" if enabled else "0")
+
+
 def get_source_folder() -> Path:
     """Folder the app reads declarations from for uploading (see upload_scanner)."""
     return Path(get_setting("source_folder", str(DEFAULT_SOURCE_FOLDER)))

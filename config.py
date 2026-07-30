@@ -57,6 +57,12 @@ PERIODIC_TYPES = ("300", "394", "406")
 # A quarterly declaration is recorded under the last month of its quarter.
 QUARTER_MONTHS = (3, 6, 9, 12)
 
+# Background recipisa polling: how often to re-check while the app is open,
+# and how long to wait after startup for the first check (so opening the app
+# stays instant). One HTTP call per company with pending declarations.
+AUTO_RECIPISA_INTERVAL_MIN = 30
+AUTO_RECIPISA_STARTUP_DELAY_S = 20
+
 # Years shown as rows in the Tab 1 matrix.
 YEARS = [2026, 2027, 2028]
 
