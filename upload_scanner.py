@@ -119,13 +119,21 @@ def _match_tip(haystack: str) -> tuple[str | None, str]:
 def _match_period(haystack: str) -> tuple[int | None, int | None, str]:
     """Identify year and month from the path.
 
-    Tries explicit numeric pairs first (2026-06, 06.2026), then a Romanian month
-    name combined with any 4-digit year present.
+    Tries explicit numeric pairs first (2026-06, 06.2026), then the compact
+    LLAA stamp ANAF puts in signed file names, then a Romanian month name
+    combined with any 4-digit year present.
     """
     if m := re.search(r"\b(20\d{2})\D{0,3}(0[1-9]|1[0-2])\b", haystack):
         return int(m.group(1)), int(m.group(2)), "an/lună din cale"
     if m := re.search(r"\b(0[1-9]|1[0-2])\D{0,3}(20\d{2})\b", haystack):
         return int(m.group(2)), int(m.group(1)), "lună/an din cale"
+
+    # ANAF's signed exports read 'd406_0626_2303590-semnat.pdf': a glued
+    # month+2-digit-year stamp. Digit-bounded so it cannot bite a chunk out of
+    # the longer index number next to it, and the year is capped at 20xx-39xx
+    # so unrelated 4-digit codes do not read as a date.
+    if m := re.search(r"(?<!\d)(0[1-9]|1[0-2])([23]\d)(?!\d)", haystack):
+        return 2000 + int(m.group(2)), int(m.group(1)), "lună/an (LLAA) din nume"
 
     year = None
     if m := re.search(r"\b(20\d{2})\b", haystack):

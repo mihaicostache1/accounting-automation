@@ -71,6 +71,8 @@ class UploadDialog(QDialog):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(COL_FILE, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(COL_NOTE, QHeaderView.ResizeMode.Stretch)
+        # Without this, ticking a row changes nothing the send button can see.
+        self.table.itemChanged.connect(lambda _item: self._refresh_send_button())
         layout.addWidget(self.table, stretch=1)
 
         self.status = QLabel()
@@ -136,9 +138,19 @@ class UploadDialog(QDialog):
         self._populate()
 
     def _populate(self) -> None:
+        # Filling the rows sets check states programmatically; block signals so
+        # that does not re-enter through itemChanged for every single cell.
+        self.table.blockSignals(True)
         self.table.setRowCount(len(self._candidates))
         for row, cand in enumerate(self._candidates):
             self._fill_row(row, cand)
+        self.table.blockSignals(False)
+        self._update_status()
+        self._refresh_send_button()
+
+    def _update_status(self) -> None:
+        """Counters under the table. Recomputed after manual corrections too,
+        otherwise the line keeps claiming a row still needs attention."""
         resolved = sum(c.resolved for c in self._candidates)
         total = len(self._candidates)
         self.status.setText(
@@ -146,7 +158,6 @@ class UploadDialog(QDialog):
             f"{total - resolved} necesită completare (alegeți firma/perioada în tabel)."
             if total else
             "Nu am găsit fișiere PDF în folderul sursă.")
-        self._refresh_send_button()
 
     def _fill_row(self, row: int, cand: upload_scanner.Candidate) -> None:
         """One table row: a tick box plus editors that write back into `cand`."""
@@ -217,10 +228,31 @@ class UploadDialog(QDialog):
         match = next((f for f in self._firme if f["id"] == firma_id), None)
         cand.nume_firma = match["nume_firma"] if match else None
         cand.cui = match["cui"] if match else None
-        self._refresh_send_button()
+        self._after_edit(cand)
 
     def _set_field(self, cand: upload_scanner.Candidate, name: str, value) -> None:
         setattr(cand, name, value)
+        self._after_edit(cand)
+
+    def _after_edit(self, cand: upload_scanner.Candidate) -> None:
+        """Tick a row as soon as manual corrections make it complete.
+
+        Rows the scanner could not place start unticked, and their tick box is
+        the only thing standing between a fully filled-in row and the send
+        button. Filling one in *is* the intent to send it, so ticking it by
+        hand afterwards is a step with no decision in it.
+        """
+        for row, other in enumerate(self._candidates):
+            if other is not cand:
+                continue
+            item = self.table.item(row, COL_SEND)
+            if (item is not None and cand.resolved
+                    and item.checkState() != Qt.CheckState.Checked):
+                self.table.blockSignals(True)
+                item.setCheckState(Qt.CheckState.Checked)
+                self.table.blockSignals(False)
+            break
+        self._update_status()
         self._refresh_send_button()
 
     # ---------------------------------------------------------------- sending
