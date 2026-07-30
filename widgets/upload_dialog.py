@@ -14,8 +14,9 @@ scanner could not resolve are shown but cannot be ticked.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QComboBox, QDialog, QFileDialog, QHBoxLayout,
-                               QHeaderView, QLabel, QMessageBox, QProgressBar,
+from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDialogButtonBox,
+                               QFileDialog, QHBoxLayout, QHeaderView, QLabel,
+                               QListWidget, QMessageBox, QProgressBar,
                                QPushButton, QSpinBox, QTableWidget,
                                QTableWidgetItem, QVBoxLayout)
 
@@ -28,6 +29,47 @@ from config import DECLARATION_TYPES, MONTHS_LONG, YEARS
 # Table columns.
 COL_SEND, COL_FILE, COL_FIRMA, COL_TIP, COL_AN, COL_LUNA, COL_NOTE = range(7)
 HEADERS = ["Trimite", "Fișier", "Firmă", "Tip", "An", "Lună", "Observații"]
+
+
+class ConfirmSendDialog(QDialog):
+    """Last look before an irreversible upload.
+
+    A plain message box truncates once the list grows past a dozen, which is
+    exactly when reviewing it matters most — so the list lives in its own
+    scrollable widget and every entry stays readable.
+    """
+
+    def __init__(self, parent, lines: list[str]):
+        super().__init__(parent)
+        self.setWindowTitle("Confirmare trimitere")
+        self.setModal(True)
+        self.resize(520, 420)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(10)
+
+        head = QLabel(f"Se vor trimite {len(lines)} declarații la ANAF:")
+        head.setProperty("role", "section-title")
+        layout.addWidget(head)
+
+        listing = QListWidget()
+        listing.addItems(lines)
+        listing.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        layout.addWidget(listing, stretch=1)
+
+        warning = QLabel("⚠  Trimiterea nu poate fi anulată.")
+        warning.setWordWrap(True)
+        layout.addWidget(warning)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Yes
+                                   | QDialogButtonBox.StandardButton.No)
+        buttons.button(QDialogButtonBox.StandardButton.Yes).setText("Trimite")
+        buttons.button(QDialogButtonBox.StandardButton.No).setText("Renunță")
+        buttons.button(QDialogButtonBox.StandardButton.No).setDefault(True)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
 
 
 class UploadDialog(QDialog):
@@ -69,7 +111,12 @@ class UploadDialog(QDialog):
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         header = self.table.horizontalHeader()
+        # Only the free-text columns absorb slack; the editors stay just wide
+        # enough for their content.
+        for col in (COL_SEND, COL_TIP, COL_AN, COL_LUNA):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(COL_FILE, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(COL_FIRMA, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(COL_NOTE, QHeaderView.ResizeMode.Stretch)
         # Without this, ticking a row changes nothing the send button can see.
         self.table.itemChanged.connect(lambda _item: self._refresh_send_button())
@@ -176,17 +223,29 @@ class UploadDialog(QDialog):
         name_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
         self.table.setItem(row, COL_FILE, name_item)
 
+        # Typing filters the list: with dozens of firms, scrolling to one is
+        # slower than typing three letters of its name or CUI.
         firma_box = QComboBox()
+        firma_box.setProperty("role", "compact")
+        firma_box.setEditable(True)
+        firma_box.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         firma_box.addItem("— alege firma —", None)
         for f in self._firme:
             firma_box.addItem(f"{f['nume_firma']} ({f['cui']})", f["id"])
+        completer = firma_box.completer()
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         if cand.firma_id is not None:
             firma_box.setCurrentIndex(firma_box.findData(cand.firma_id))
         firma_box.currentIndexChanged.connect(
             lambda _, c=cand, b=firma_box: self._set_firma(c, b))
+        firma_box.lineEdit().editingFinished.connect(
+            lambda b=firma_box: self._restore_firma_text(b))
         self.table.setCellWidget(row, COL_FIRMA, firma_box)
 
         tip_box = QComboBox()
+        tip_box.setProperty("role", "compact")
         tip_box.addItem("— tip —", None)
         for tip in DECLARATION_TYPES:
             tip_box.addItem(tip, tip)
@@ -197,6 +256,7 @@ class UploadDialog(QDialog):
         self.table.setCellWidget(row, COL_TIP, tip_box)
 
         an_spin = QSpinBox()
+        an_spin.setProperty("role", "compact")
         an_spin.setRange(min(YEARS) - 5, max(YEARS) + 5)
         an_spin.setValue(cand.an or min(YEARS))
         # A spin box cannot show "empty", so adopt the displayed year as the
@@ -208,6 +268,7 @@ class UploadDialog(QDialog):
         self.table.setCellWidget(row, COL_AN, an_spin)
 
         luna_box = QComboBox()
+        luna_box.setProperty("role", "compact")
         luna_box.addItem("— luna —", None)
         for idx, name in enumerate(MONTHS_LONG, start=1):
             luna_box.addItem(name, idx)
@@ -221,6 +282,12 @@ class UploadDialog(QDialog):
         note.setFlags(Qt.ItemFlag.ItemIsEnabled)
         note.setToolTip("\n".join(cand.notes))
         self.table.setItem(row, COL_NOTE, note)
+
+    @staticmethod
+    def _restore_firma_text(box: QComboBox) -> None:
+        """Put the selected firm's text back after a search that matched
+        nothing, so the cell never shows a name that is not the selection."""
+        box.lineEdit().setText(box.itemText(box.currentIndex()))
 
     def _set_firma(self, cand: upload_scanner.Candidate, box: QComboBox) -> None:
         firma_id = box.currentData()
@@ -303,18 +370,9 @@ class UploadDialog(QDialog):
                 "apoi încercați din nou.")
             return
 
-        summary = "\n".join(
-            f"  • {c.nume_firma} — {c.tip} — {MONTHS_LONG[c.luna - 1]} {c.an}"
-            for c in jobs_src[:12])
-        if len(jobs_src) > 12:
-            summary += f"\n  … și încă {len(jobs_src) - 12}"
-        confirmed = QMessageBox.question(
-            self, "Confirmare trimitere",
-            f"Se vor trimite {len(jobs_src)} declarații la ANAF:\n\n{summary}\n\n"
-            "Trimiterea nu poate fi anulată. Continuați?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No)
-        if confirmed != QMessageBox.StandardButton.Yes:
+        lines = [f"{c.nume_firma} — {c.tip} — {MONTHS_LONG[c.luna - 1]} {c.an}"
+                 for c in jobs_src]
+        if ConfirmSendDialog(self, lines).exec() != QDialog.DialogCode.Accepted:
             return
 
         jobs = [UploadJob(path=c.path, firma_id=c.firma_id, cui=c.cui,

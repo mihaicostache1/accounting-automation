@@ -95,6 +95,25 @@ QComboBox {{
 }}
 QComboBox:hover {{ border-color: {ACCENT}; }}
 QComboBox::drop-down {{ border: none; width: 24px; }}
+
+/* Editors sitting inside table cells: the 220px minimum above is meant for
+   standalone selectors and makes table columns absurdly wide. */
+QComboBox[role="compact"] {{
+    min-width: 0;
+    padding: 2px 6px;
+}}
+QComboBox[role="compact"]::drop-down {{ width: 16px; }}
+QSpinBox[role="compact"] {{
+    background-color: #ffffff;
+    border: 1px solid #ccd3dc;
+    border-radius: 6px;
+    padding: 2px 4px;
+    min-width: 0;
+}}
+QSpinBox[role="compact"]:focus {{ border-color: {ACCENT}; }}
+QSpinBox[role="compact"]::up-button, QSpinBox[role="compact"]::down-button {{
+    width: 14px;
+}}
 QComboBox QAbstractItemView {{
     background-color: #ffffff;
     border: 1px solid #ccd3dc;
