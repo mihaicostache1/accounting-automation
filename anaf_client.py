@@ -35,6 +35,12 @@ STARE_LABELS = {
 }
 
 
+def are_erori(stare: str | None) -> bool:
+    """True when the ANAF state means the submission failed validation —
+    the yellow 'needs attention' color in the UI."""
+    return stare in (STARE_ERORI, STARE_INVALID)
+
+
 class AnafError(Exception):
     """Network failure or unusable response from the ANAF service."""
 

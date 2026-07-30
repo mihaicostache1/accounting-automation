@@ -237,27 +237,32 @@ def get_status(firma_id: int, tip: str, an: int, luna: int) -> sqlite3.Row | Non
         ).fetchone()
 
 
-def get_type_matrix(firma_id: int, tip: str) -> dict[tuple[int, int], bool]:
-    """{(an, luna): declaration_submitted} for every recorded cell of one type."""
+def get_type_matrix(firma_id: int, tip: str) -> dict[tuple[int, int], tuple[bool, str | None]]:
+    """{(an, luna): (declaration_submitted, stare_validare)} for every recorded
+    cell of one type — the ANAF state drives the yellow 'validation errors'
+    color in the matrices."""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT an, luna, status_declaratie FROM declaratii_status "
-            "WHERE firma_id = ? AND tip_declaratie = ?",
+            "SELECT an, luna, status_declaratie, stare_validare "
+            "FROM declaratii_status WHERE firma_id = ? AND tip_declaratie = ?",
             (firma_id, tip),
         ).fetchall()
-    return {(r["an"], r["luna"]): bool(r["status_declaratie"]) for r in rows}
+    return {(r["an"], r["luna"]): (bool(r["status_declaratie"]), r["stare_validare"])
+            for r in rows}
 
 
-def get_month_overview(an: int, luna: int) -> dict[tuple[int, str], tuple[bool, bool]]:
-    """{(firma_id, tip): (declaration_submitted, receipt_submitted)} for one month."""
+def get_month_overview(an: int, luna: int) -> dict[tuple[int, str], tuple[bool, bool, str | None]]:
+    """{(firma_id, tip): (declaration_submitted, receipt_submitted,
+    stare_validare)} for one month."""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT firma_id, tip_declaratie, status_declaratie, status_recipisa "
-            "FROM declaratii_status WHERE an = ? AND luna = ?",
+            "SELECT firma_id, tip_declaratie, status_declaratie, status_recipisa, "
+            "stare_validare FROM declaratii_status WHERE an = ? AND luna = ?",
             (an, luna),
         ).fetchall()
     return {(r["firma_id"], r["tip_declaratie"]):
-            (bool(r["status_declaratie"]), bool(r["status_recipisa"]))
+            (bool(r["status_declaratie"]), bool(r["status_recipisa"]),
+             r["stare_validare"])
             for r in rows}
 
 

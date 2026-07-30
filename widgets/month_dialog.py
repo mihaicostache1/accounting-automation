@@ -1,9 +1,9 @@
 """Modal dialog shown when a month cell is clicked.
 
 Two color-coded buttons — "Declarație" and "Recipisă" — open the stored PDF
-with the system viewer. Each document also has a "…" menu to attach/replace
-the PDF or flip the submitted flag. `self.changed` tells the caller whether
-the tabs need a refresh.
+with the system viewer (and offer attaching one when it is missing). The
+recipisa button turns yellow when ANAF reported validation errors.
+`self.changed` tells the caller whether the tabs need a refresh.
 """
 
 from __future__ import annotations
@@ -13,8 +13,7 @@ import sqlite3
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QDialog, QFileDialog, QHBoxLayout, QLabel,
-                               QLineEdit, QMenu, QMessageBox, QPushButton,
-                               QToolButton, QVBoxLayout)
+                               QLineEdit, QMessageBox, QPushButton, QVBoxLayout)
 
 import anaf_client
 import database
@@ -52,25 +51,12 @@ class MonthDialog(QDialog):
 
         self.doc_buttons: dict[str, QPushButton] = {}
         for kind, label in DOC_KINDS:
-            row = QHBoxLayout()
-            row.setSpacing(6)
-
             btn = QPushButton(label)
             btn.setMinimumHeight(48)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(lambda _=False, k=kind: self._open_document(k))
             self.doc_buttons[kind] = btn
-            row.addWidget(btn, stretch=1)
-
-            more = QToolButton()
-            more.setText("…")
-            more.setFixedSize(48, 48)
-            more.setCursor(Qt.CursorShape.PointingHandCursor)
-            more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-            more.setMenu(self._build_menu(kind, label))
-            row.addWidget(more)
-
-            layout.addLayout(row)
+            layout.addWidget(btn)
 
         # -- ANAF: index de încărcare + verificare recipisă ---------------- #
         anaf_title = QLabel("ANAF — verificare recipisă")
@@ -122,16 +108,22 @@ class MonthDialog(QDialog):
         return bool(row[status_col]), row[path_col]
 
     def _refresh(self) -> None:
-        for kind, label in DOC_KINDS:
-            submitted, _ = self._current(kind)
-            btn = self.doc_buttons[kind]
-            btn.setText(f"{label}  —  {'Depusă' if submitted else 'Lipsă'}")
-            btn.setProperty("status", "ok" if submitted else "missing")
-            repolish(btn)
-
         row = database.get_status(self.firma["id"], self.tip, self.an, self.luna)
         index = (row["index_incarcare"] or "") if row else ""
         stare = row["stare_validare"] if row else None
+
+        for kind, label in DOC_KINDS:
+            submitted, _ = self._current(kind)
+            btn = self.doc_buttons[kind]
+            # Validation errors trump "Depusă": the recipisa on disk is ANAF's
+            # rejection, so green would wrongly signal that everything is fine.
+            if kind == "recipisa" and anaf_client.are_erori(stare):
+                btn.setText(f"{label}  —  Erori de validare")
+                btn.setProperty("status", "warn")
+            else:
+                btn.setText(f"{label}  —  {'Depusă' if submitted else 'Lipsă'}")
+                btn.setProperty("status", "ok" if submitted else "missing")
+            repolish(btn)
         if not self.index_edit.hasFocus():
             self.index_edit.setText(index)
         if stare:
@@ -146,14 +138,6 @@ class MonthDialog(QDialog):
             self.stare_label.setStyleSheet("color: #8a93a0;")
 
     # ---------------------------------------------------------------- actions
-
-    def _build_menu(self, kind: str, label: str) -> QMenu:
-        menu = QMenu(self)
-        menu.addAction(f"Atașează / înlocuiește PDF ({label})",
-                       lambda: self._attach_pdf(kind))
-        menu.addAction("Comută status depus / nedepus",
-                       lambda: self._toggle_status(kind))
-        return menu
 
     def _open_document(self, kind: str) -> None:
         submitted, path = self._current(kind)
@@ -224,11 +208,3 @@ class MonthDialog(QDialog):
             self.firma["cui"], self.an, self.luna, self.tip, "recipisa")).parent
         folder.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
-
-    def _toggle_status(self, kind: str) -> None:
-        submitted, _ = self._current(kind)
-        status_col, _ = DB_FIELDS[kind]
-        database.update_status_fields(self.firma["id"], self.tip, self.an, self.luna,
-                                      **{status_col: 0 if submitted else 1})
-        self.changed = True
-        self._refresh()

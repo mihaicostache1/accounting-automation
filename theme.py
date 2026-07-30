@@ -1,7 +1,8 @@
 """Modern light theme (QSS) and status colors.
 
-Status-colored widgets use the dynamic property `status` = "ok" | "missing";
-call `repolish()` after changing it so Qt re-applies the stylesheet.
+Status-colored widgets use the dynamic property `status` = "ok" | "missing"
+| "warn" | "na"; call `repolish()` after changing it so Qt re-applies the
+stylesheet.
 """
 
 from PySide6.QtWidgets import QWidget
@@ -10,6 +11,9 @@ GREEN = "#2e9e5b"
 GREEN_HOVER = "#27884e"
 RED = "#d64545"
 RED_HOVER = "#bf3a3a"
+YELLOW = "#f0b429"       # recipisa with validation errors
+YELLOW_HOVER = "#dda20f"
+YELLOW_TEXT = "#5b4708"  # dark text — white is unreadable on amber
 GRAY_BG = "#e3e6eb"      # "not applicable" cells
 GRAY_TEXT = "#8a93a0"
 ACCENT = "#2563eb"
@@ -139,7 +143,8 @@ QPushButton[role="type-toggle"]:checked {{
     color: #ffffff;
 }}
 
-/* Month matrix cells and dialog document buttons: green = ok, red = missing */
+/* Month matrix cells and dialog document buttons:
+   green = ok, red = missing, yellow = ANAF validation errors */
 QPushButton[status="ok"] {{
     background-color: {GREEN};
     border: 1px solid {GREEN};
@@ -154,6 +159,13 @@ QPushButton[status="missing"] {{
     font-weight: 600;
 }}
 QPushButton[status="missing"]:hover {{ background-color: {RED_HOVER}; }}
+QPushButton[status="warn"] {{
+    background-color: {YELLOW};
+    border: 1px solid {YELLOW};
+    color: {YELLOW_TEXT};
+    font-weight: 600;
+}}
+QPushButton[status="warn"]:hover {{ background-color: {YELLOW_HOVER}; }}
 QPushButton[status="na"] {{
     background-color: {GRAY_BG};
     border: 1px solid {GRAY_BG};

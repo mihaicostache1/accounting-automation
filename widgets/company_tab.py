@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDialog, QGridLayout,
                                QGroupBox, QHBoxLayout, QLabel, QPushButton,
                                QVBoxLayout, QWidget)
 
+import anaf_client
 import database
 from config import MONTHS_LONG, MONTHS_SHORT, YEARS
 from theme import repolish
@@ -180,9 +181,12 @@ class CompanyTab(QWidget):
             return
         matrix = database.get_type_matrix(firma["id"], tip)
         for (year, luna), cell in self._cells.items():
-            submitted = matrix.get((year, luna), False)
+            submitted, stare = matrix.get((year, luna), (False, None))
             cell.setEnabled(True)
-            cell.setProperty("status", "ok" if submitted else "missing")
+            if submitted and anaf_client.are_erori(stare):
+                cell.setProperty("status", "warn")
+            else:
+                cell.setProperty("status", "ok" if submitted else "missing")
             repolish(cell)
 
     # ---------------------------------------------------------------- dialogs
