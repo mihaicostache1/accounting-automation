@@ -10,13 +10,16 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from config import DB_PATH, DECLARATION_TYPES, DEFAULT_BASE_FOLDER, type_folder_name
+from config import (DB_PATH, DECLARATION_TYPES, DEFAULT_BASE_FOLDER,
+                    DEFAULT_SOURCE_FOLDER, type_folder_name)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS firme (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     nume_firma  TEXT NOT NULL,
-    cui         TEXT NOT NULL UNIQUE
+    cui         TEXT NOT NULL UNIQUE,
+    folder_sursa TEXT,
+    periodicitate TEXT NOT NULL DEFAULT 'lunar'
 );
 
 CREATE TABLE IF NOT EXISTS declaratii_status (
@@ -59,6 +62,7 @@ def init_db() -> None:
     with get_connection() as conn:
         conn.executescript(SCHEMA)
         _migrate_anaf_columns(conn)
+        _migrate_firma_folder(conn)
         empty = conn.execute("SELECT COUNT(*) FROM firme").fetchone()[0] == 0
         if not empty:
             _migrate_firma_tipuri(conn)
@@ -73,6 +77,17 @@ def _migrate_anaf_columns(conn: sqlite3.Connection) -> None:
     for column in ("index_incarcare", "stare_validare"):
         if column not in existing:
             conn.execute(f"ALTER TABLE declaratii_status ADD COLUMN {column} TEXT")
+
+
+def _migrate_firma_folder(conn: sqlite3.Connection) -> None:
+    """Add per-firm columns (source-folder override, VAT periodicity) to DBs
+    created before they existed."""
+    existing = {r["name"] for r in conn.execute("PRAGMA table_info(firme)").fetchall()}
+    if "folder_sursa" not in existing:
+        conn.execute("ALTER TABLE firme ADD COLUMN folder_sursa TEXT")
+    if "periodicitate" not in existing:
+        conn.execute("ALTER TABLE firme ADD COLUMN periodicitate TEXT "
+                     "NOT NULL DEFAULT 'lunar'")
 
 
 def _migrate_firma_tipuri(conn: sqlite3.Connection) -> None:
@@ -118,6 +133,24 @@ def set_base_folder(path: Path | str) -> None:
     set_setting("base_folder", str(path))
 
 
+def get_auto_recipise() -> bool:
+    """Whether the app polls ANAF for recipise on its own (see MainWindow)."""
+    return get_setting("auto_recipise", "1") == "1"
+
+
+def set_auto_recipise(enabled: bool) -> None:
+    set_setting("auto_recipise", "1" if enabled else "0")
+
+
+def get_source_folder() -> Path:
+    """Folder the app reads declarations from for uploading (see upload_scanner)."""
+    return Path(get_setting("source_folder", str(DEFAULT_SOURCE_FOLDER)))
+
+
+def set_source_folder(path: Path | str) -> None:
+    set_setting("source_folder", str(path))
+
+
 # --------------------------------------------------------------------------- #
 # Firme
 # --------------------------------------------------------------------------- #
@@ -125,7 +158,8 @@ def set_base_folder(path: Path | str) -> None:
 def list_firme() -> list[sqlite3.Row]:
     with get_connection() as conn:
         return conn.execute(
-            "SELECT id, nume_firma, cui FROM firme ORDER BY nume_firma COLLATE NOCASE"
+            "SELECT id, nume_firma, cui, folder_sursa, periodicitate FROM firme "
+            "ORDER BY nume_firma COLLATE NOCASE"
         ).fetchall()
 
 
@@ -144,6 +178,42 @@ def update_firma(firma_id: int, nume: str, cui: str) -> None:
             "UPDATE firme SET nume_firma = ?, cui = ? WHERE id = ?",
             (nume.strip(), cui.strip(), firma_id),
         )
+
+
+def delete_firma(firma_id: int) -> None:
+    """Delete a firm and everything derived from it (statuses, applicable
+    types) via the ON DELETE CASCADE foreign keys. Does not touch archived
+    PDFs on disk."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM firme WHERE id = ?", (firma_id,))
+
+
+def get_firma_source_folder(firma_id: int) -> Path | None:
+    """Per-firm override of the source folder, or None to use the global one
+    (see database.get_source_folder)."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT folder_sursa FROM firme WHERE id = ?", (firma_id,)
+        ).fetchone()
+    return Path(row["folder_sursa"]) if row and row["folder_sursa"] else None
+
+
+def set_firma_source_folder(firma_id: int, path: Path | str | None) -> None:
+    """Set or clear (path=None) the per-firm source-folder override."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE firme SET folder_sursa = ? WHERE id = ?",
+            (str(path) if path else None, firma_id),
+        )
+
+
+def set_firma_periodicitate(firma_id: int, periodicitate: str) -> None:
+    """'lunar' or 'trimestrial' — applies to the PERIODIC_TYPES group."""
+    if periodicitate not in ("lunar", "trimestrial"):
+        raise ValueError(f"Periodicitate necunoscută: {periodicitate!r}")
+    with get_connection() as conn:
+        conn.execute("UPDATE firme SET periodicitate = ? WHERE id = ?",
+                     (periodicitate, firma_id))
 
 
 def get_firma_tipuri(firma_id: int) -> list[str]:
@@ -190,27 +260,32 @@ def get_status(firma_id: int, tip: str, an: int, luna: int) -> sqlite3.Row | Non
         ).fetchone()
 
 
-def get_type_matrix(firma_id: int, tip: str) -> dict[tuple[int, int], bool]:
-    """{(an, luna): declaration_submitted} for every recorded cell of one type."""
+def get_type_matrix(firma_id: int, tip: str) -> dict[tuple[int, int], tuple[bool, str | None]]:
+    """{(an, luna): (declaration_submitted, stare_validare)} for every recorded
+    cell of one type — the ANAF state drives the yellow 'validation errors'
+    color in the matrices."""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT an, luna, status_declaratie FROM declaratii_status "
-            "WHERE firma_id = ? AND tip_declaratie = ?",
+            "SELECT an, luna, status_declaratie, stare_validare "
+            "FROM declaratii_status WHERE firma_id = ? AND tip_declaratie = ?",
             (firma_id, tip),
         ).fetchall()
-    return {(r["an"], r["luna"]): bool(r["status_declaratie"]) for r in rows}
+    return {(r["an"], r["luna"]): (bool(r["status_declaratie"]), r["stare_validare"])
+            for r in rows}
 
 
-def get_month_overview(an: int, luna: int) -> dict[tuple[int, str], tuple[bool, bool]]:
-    """{(firma_id, tip): (declaration_submitted, receipt_submitted)} for one month."""
+def get_month_overview(an: int, luna: int) -> dict[tuple[int, str], tuple[bool, bool, str | None]]:
+    """{(firma_id, tip): (declaration_submitted, receipt_submitted,
+    stare_validare)} for one month."""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT firma_id, tip_declaratie, status_declaratie, status_recipisa "
-            "FROM declaratii_status WHERE an = ? AND luna = ?",
+            "SELECT firma_id, tip_declaratie, status_declaratie, status_recipisa, "
+            "stare_validare FROM declaratii_status WHERE an = ? AND luna = ?",
             (an, luna),
         ).fetchall()
     return {(r["firma_id"], r["tip_declaratie"]):
-            (bool(r["status_declaratie"]), bool(r["status_recipisa"]))
+            (bool(r["status_declaratie"]), bool(r["status_recipisa"]),
+             r["stare_validare"])
             for r in rows}
 
 

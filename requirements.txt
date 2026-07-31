@@ -1,1 +1,6 @@
 PySide6>=6.6
+# CDP client only — attaches to the user's own Chrome (see anaf_uploader).
+# `playwright install` is deliberately NOT needed: no browser is downloaded.
+playwright>=1.40
+# Excel import of firms (see excel_import).
+openpyxl>=3.1

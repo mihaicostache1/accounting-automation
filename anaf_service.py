@@ -37,6 +37,12 @@ class CellOutcome:
     recipisa_downloaded: bool = False
 
 
+# Host the app normally talks to; anything else means it fell back to the
+# mirror, which is worth showing so an ANAF outage is visible rather than
+# looking like the app being slow.
+_MAIN_HOST = "www.anaf.ro"
+
+
 def _cui_number(cui: str) -> str:
     """ANAF expects the numeric CIF — strip the optional RO prefix."""
     return cui.strip().upper().removeprefix("RO").strip()
@@ -90,13 +96,25 @@ class RecipisaWorker(QThread):
             except anaf_client.AnafError as exc:
                 outcomes += [CellOutcome(j, False, None, str(exc)) for j in jobs]
                 continue
+            # Only meaningful after a successful call: before it, this is the
+            # host we intend to try, not the one that answered.
+            if anaf_client.current_host() != _MAIN_HOST:
+                self.progress.emit(
+                    f"ANAF principal indisponibil — se folosește "
+                    f"{anaf_client.current_host()}…")
 
             by_index = {s.index: s for s in statuses}
             for job in jobs:
                 status = by_index.get(str(job.index).strip())
                 if status is None:
+                    # Store it: unlike a network error, an index ANAF does not
+                    # know about is a real problem with this declaration, and
+                    # the matrices must show it instead of a reassuring green.
+                    database.update_status_fields(
+                        job.firma_id, job.tip, job.an, job.luna,
+                        stare_validare=anaf_client.STARE_NEGASIT)
                     outcomes.append(CellOutcome(
-                        job, False, None,
+                        job, False, anaf_client.STARE_NEGASIT,
                         "Indexul nu apare în lista ANAF (verificați indexul și "
                         "CIF-ul; serviciul acoperă doar ultimele 3 luni)."))
                     continue

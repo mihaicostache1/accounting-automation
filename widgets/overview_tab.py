@@ -1,8 +1,9 @@
 """Tab 2 — global overview for one selected year + month.
 
 One row per company; one column per declaration type. Each cell is a single
-green/red indicator: submitted or not for the selected month. Clicking a cell
-jumps to Tab 1 with that company and type pre-selected.
+indicator for the selected month: green = submitted, red = missing, yellow =
+submitted but ANAF reported validation errors. Clicking a cell jumps to Tab 1
+with that company and type pre-selected.
 """
 
 from __future__ import annotations
@@ -12,11 +13,14 @@ from datetime import date
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QHeaderView, QLabel,
-                               QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+                               QPushButton, QTableWidget, QTableWidgetItem,
+                               QVBoxLayout, QWidget)
 
+import anaf_client
 import database
-from config import DECLARATION_TYPES, MONTHS_LONG, YEARS
-from theme import GRAY_BG, GRAY_TEXT, GREEN, RED
+from config import (DECLARATION_TYPES, MONTHS_LONG, PERIODIC_TYPES,
+                    QUARTER_MONTHS, YEARS)
+from theme import GRAY_BG, GRAY_TEXT, GREEN, RED, YELLOW, YELLOW_TEXT
 
 
 class OverviewTab(QWidget):
@@ -55,6 +59,11 @@ class OverviewTab(QWidget):
         hint = QLabel("Click pe o celulă pentru a deschide firma în primul tab")
         hint.setProperty("role", "section-title")
         top.addWidget(hint)
+
+        refresh_btn = QPushButton("🔄  Reîmprospătează")
+        refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        refresh_btn.clicked.connect(self.refresh)
+        top.addWidget(refresh_btn)
         layout.addLayout(top)
 
         self.table = QTableWidget()
@@ -88,23 +97,43 @@ class OverviewTab(QWidget):
 
             applicable = self._tipuri.get(firma["id"], set())
             for col, tip in enumerate(DECLARATION_TYPES, start=2):
-                if tip not in applicable:
-                    # Declaration type does not apply to this firm -> gray cell.
+                not_applicable = tip not in applicable
+                off_quarter = (not not_applicable
+                               and tip in PERIODIC_TYPES
+                               and firma["periodicitate"] == "trimestrial"
+                               and luna not in QUARTER_MONTHS)
+                if not_applicable or off_quarter:
+                    # Gray cell: type not applicable, or quarterly filer in a
+                    # month where this type simply does not exist.
                     item = QTableWidgetItem("—")
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     item.setBackground(QBrush(QColor(GRAY_BG)))
                     item.setForeground(QBrush(QColor(GRAY_TEXT)))
-                    item.setToolTip(f"{tip} — nu se aplică acestei firme")
+                    item.setToolTip(
+                        f"{tip} — nu se aplică acestei firme" if not_applicable
+                        else f"{tip} — trimestrial: se depune doar în "
+                             "Mar / Iun / Sep / Dec")
                 else:
-                    decl_ok, rec_ok = statuses.get((firma["id"], tip), (False, False))
-                    item = QTableWidgetItem("✓" if decl_ok else "✗")
+                    decl_ok, rec_ok, stare = statuses.get(
+                        (firma["id"], tip), (False, False, None))
+                    erori = decl_ok and anaf_client.are_erori(stare)
+                    if erori:
+                        # Submitted but rejected by ANAF: yellow, not green.
+                        item = QTableWidgetItem("!")
+                        item.setBackground(QBrush(QColor(YELLOW)))
+                        item.setForeground(QBrush(QColor(YELLOW_TEXT)))
+                    else:
+                        item = QTableWidgetItem("✓" if decl_ok else "✗")
+                        item.setBackground(QBrush(QColor(GREEN if decl_ok else RED)))
+                        item.setForeground(QBrush(QColor("#ffffff")))
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    item.setBackground(QBrush(QColor(GREEN if decl_ok else RED)))
-                    item.setForeground(QBrush(QColor("#ffffff")))
+                    stare_line = (f"\nStare ANAF: {anaf_client.STARE_LABELS.get(stare, stare)}"
+                                  if stare else "")
                     item.setToolTip(
                         f"{tip} — {MONTHS_LONG[luna - 1]} {an}\n"
                         f"Declarație: {'depusă' if decl_ok else 'lipsă'}\n"
-                        f"Recipisă: {'depusă' if rec_ok else 'lipsă'}")
+                        f"Recipisă: {'depusă' if rec_ok else 'lipsă'}"
+                        + stare_line)
                 self.table.setItem(row, col, item)
 
     def _on_cell_clicked(self, row: int, col: int) -> None:
@@ -112,7 +141,11 @@ class OverviewTab(QWidget):
             return
         firma = self._firme[row]
         tip = DECLARATION_TYPES[col - 2]
-        # Gray (non-applicable) cells are not navigable.
+        # Gray cells (non-applicable, or off-quarter for trimestrial firms)
+        # are not navigable.
         if tip not in self._tipuri.get(firma["id"], set()):
+            return
+        if (tip in PERIODIC_TYPES and firma["periodicitate"] == "trimestrial"
+                and self.month_combo.currentData() not in QUARTER_MONTHS):
             return
         self.cell_activated.emit(firma["id"], tip)

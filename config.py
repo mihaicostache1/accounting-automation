@@ -22,6 +22,12 @@ def _data_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
+# Read-only bundled resources (icons): next to the code in development, the
+# PyInstaller extraction dir (_MEIPASS -> _internal in onedir mode) when frozen.
+RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+
+APP_ICON_PATH = RESOURCE_DIR / "assets" / "icon.png"
+
 # SQLite database location (see _data_dir).
 DB_PATH = _data_dir() / "declaratii.db"
 
@@ -29,8 +35,33 @@ DB_PATH = _data_dir() / "declaratii.db"
 # in the DB `settings` table and can be changed from the app (Setări folder).
 DEFAULT_BASE_FOLDER = Path.home() / "Declaratii_Firme"
 
+# Folder the app READS signed declarations from before uploading them to ANAF.
+# Distinct from DEFAULT_BASE_FOLDER, which is where the organized archive of
+# declarations and recipise is written. Also overridable from the app.
+DEFAULT_SOURCE_FOLDER = Path.home() / "Declaratii_de_trimis"
+
+# Chrome/Edge debugging port used to attach to the user's already-authenticated
+# ANAF session (see anaf_uploader). Fixed so a relaunch reuses the same channel.
+CHROME_DEBUG_PORT = 9222
+
+# ANAF's certificate-authenticated upload page for D112-family declarations.
+ANAF_UPLOAD_URL = "https://decl.anaf.mfinante.gov.ro/WAS6DUS"
+
 # Declaration types shown as toggle buttons (Tab 1) and columns (Tab 2).
-DECLARATION_TYPES = ["100", "112", "300", "390", "406", "Case de marcat"]
+DECLARATION_TYPES = ["100", "112", "300", "390", "394", "406", "Case de marcat"]
+
+# Types that follow the firm's VAT periodicity: choosing lunar/trimestrial for
+# 300 in the firm dialog applies the same to 394 and 406.
+PERIODIC_TYPES = ("300", "394", "406")
+
+# A quarterly declaration is recorded under the last month of its quarter.
+QUARTER_MONTHS = (3, 6, 9, 12)
+
+# Background recipisa polling: how often to re-check while the app is open,
+# and how long to wait after startup for the first check (so opening the app
+# stays instant). One HTTP call per company with pending declarations.
+AUTO_RECIPISA_INTERVAL_MIN = 30
+AUTO_RECIPISA_STARTUP_DELAY_S = 20
 
 # Years shown as rows in the Tab 1 matrix.
 YEARS = [2026, 2027, 2028]
