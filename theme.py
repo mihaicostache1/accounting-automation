@@ -17,6 +17,7 @@ YELLOW_TEXT = "#5b4708"  # dark text — white is unreadable on amber
 GRAY_BG = "#e3e6eb"      # "not applicable" cells
 GRAY_TEXT = "#8a93a0"
 ACCENT = "#2563eb"
+CANVAS = "#f7f8fb"       # page background behind the cards
 
 LIGHT_QSS = f"""
 * {{
@@ -26,15 +27,70 @@ LIGHT_QSS = f"""
 }}
 
 QMainWindow, QDialog {{
-    background-color: #f2f4f7;
+    background-color: {CANVAS};
+}}
+QWidget[role="content"] {{
+    background-color: {CANVAS};
 }}
 
-QToolBar {{
+/* Left navigation panel (replaces the old top toolbar) */
+QFrame[role="sidebar"] {{
     background-color: #ffffff;
-    border-bottom: 1px solid #dde1e6;
-    padding: 4px 8px;
-    spacing: 6px;
+    border-right: 1px solid #e6e9ee;
 }}
+QLabel[role="brand"] {{
+    color: #1f2430;
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    padding: 0 6px;
+}}
+QLabel[role="brand-sub"] {{
+    color: #9aa3b0;
+    font-size: 11px;
+    padding: 2px 6px 0 6px;
+}}
+QLabel[role="nav-section"] {{
+    color: #aab2bd;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 0 6px 6px 6px;
+}}
+QLabel[role="page-title"] {{
+    color: #1f2430;
+    font-size: 19px;
+    font-weight: 700;
+}}
+
+QPushButton[role="nav"] {{
+    background-color: transparent;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 12px;
+    text-align: left;
+    color: #5b6472;
+    font-size: 13px;
+    min-height: 20px;
+}}
+QPushButton[role="nav"]:hover {{
+    background-color: #f2f5fa;
+    border: none;
+    color: #1f2430;
+}}
+QPushButton[role="nav"]:pressed {{
+    background-color: #e8eef8;
+}}
+QPushButton[role="nav"]:checked {{
+    background-color: {ACCENT};
+    color: #ffffff;
+    font-weight: 600;
+}}
+QPushButton[role="nav"]:disabled {{
+    color: #c2c8d0;
+    background-color: transparent;
+}}
+
 QToolButton {{
     background-color: transparent;
     border: 1px solid transparent;
@@ -47,8 +103,8 @@ QToolButton:hover {{
 }}
 
 QTabWidget::pane {{
-    border: 1px solid #dde1e6;
-    border-radius: 8px;
+    border: 1px solid #e6e9ee;
+    border-radius: 12px;
     background-color: #ffffff;
     top: -1px;
 }}
@@ -73,10 +129,10 @@ QTabBar::tab:hover:!selected {{
 }}
 
 QGroupBox {{
-    border: 1px solid #dde1e6;
-    border-radius: 8px;
+    border: 1px solid #e6e9ee;
+    border-radius: 12px;
     margin-top: 12px;
-    background-color: #fbfcfe;
+    background-color: #ffffff;
     font-weight: 600;
 }}
 QGroupBox::title {{
@@ -211,8 +267,8 @@ QLabel[role="year-label"] {{
 
 QTableWidget {{
     background-color: #ffffff;
-    border: 1px solid #dde1e6;
-    border-radius: 8px;
+    border: 1px solid #e6e9ee;
+    border-radius: 12px;
     gridline-color: #eceff3;
     selection-background-color: #e8effd;
     selection-color: #1f2430;
