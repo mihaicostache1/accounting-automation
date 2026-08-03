@@ -26,6 +26,7 @@ from widgets.company_dialog import CompanyDialog
 from widgets.company_tab import CompanyTab
 from widgets.import_dialog import ImportDialog
 from widgets.overview_tab import OverviewTab
+from widgets.report_dialog import ReportDialog
 from widgets.upload_dialog import UploadDialog
 
 
@@ -41,6 +42,7 @@ class MainWindow(QMainWindow):
         toolbar.addAction("📥  Importă din Excel", self._import_from_excel)
         toolbar.addAction("📁  Setări folder", self._choose_base_folder)
         toolbar.addAction("⬆  Trimite la ANAF", self._upload_declarations)
+        toolbar.addAction("📊  Raport Excel", self._export_report)
         self._check_action = toolbar.addAction("🔄  Verifică recipise ANAF",
                                                self._check_all_recipise)
         self._auto_action = toolbar.addAction("⏱  Verificare automată")
@@ -86,6 +88,9 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.company_tab.reload_companies()
             self.overview_tab.refresh()
+
+    def _export_report(self) -> None:
+        ReportDialog(self).exec()
 
     def _import_from_excel(self) -> None:
         dialog = ImportDialog(self)

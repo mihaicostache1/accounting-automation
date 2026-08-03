@@ -323,6 +323,31 @@ def list_pending_recipise() -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def list_report_rows(an: int, luna: int | None = None) -> list[sqlite3.Row]:
+    """Submitted declarations for one year, or for a single month of it.
+
+    Only rows that represent an actual submission are returned (the
+    declaration is marked as filed, or an upload index was recorded), so the
+    report does not list cells that merely exist in the table.
+    """
+    clauses = ["ds.an = ?",
+               "(ds.status_declaratie = 1 OR "
+               " (ds.index_incarcare IS NOT NULL AND ds.index_incarcare != ''))"]
+    params: list = [an]
+    if luna is not None:
+        clauses.append("ds.luna = ?")
+        params.append(luna)
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT f.nume_firma, f.cui, ds.an, ds.luna, ds.tip_declaratie, "
+            "       ds.index_incarcare, ds.stare_validare, ds.status_recipisa "
+            "FROM declaratii_status ds JOIN firme f ON f.id = ds.firma_id "
+            f"WHERE {' AND '.join(clauses)} "
+            "ORDER BY f.nume_firma COLLATE NOCASE, ds.luna, ds.tip_declaratie",
+            params,
+        ).fetchall()
+
+
 # --------------------------------------------------------------------------- #
 # Mock data (first run only)
 # --------------------------------------------------------------------------- #
