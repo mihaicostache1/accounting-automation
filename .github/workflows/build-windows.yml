@@ -9,6 +9,9 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: read
+      actions: write        # needed to prune old artifacts
     steps:
       - uses: actions/checkout@v4
 
@@ -34,11 +37,28 @@ jobs:
       - name: Zip the build
         run: Compress-Archive -Path dist\declaut -DestinationPath dist\declaut-windows.zip
 
+      # This is a private repo, so artifacts count against a 500MB quota while
+      # one build alone is ~186MB. Retention below is not enough on its own —
+      # a few builds in the same week still fill it and uploads start failing
+      # with "storage quota has been hit". Clearing previous builds first keeps
+      # only the current one; they are cheap to reproduce by re-running a tag.
+      - name: Prune previous artifacts
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ids = gh api repos/${{ github.repository }}/actions/artifacts `
+            --paginate -q '.artifacts[] | select(.expired==false) | .id'
+          foreach ($id in $ids) {
+            gh api -X DELETE repos/${{ github.repository }}/actions/artifacts/$id
+          }
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: declaut-windows
           path: dist\declaut-windows.zip
+          retention-days: 7
 
       # Diagnostic twin of the build above: --console keeps a terminal attached
       # so a startup exception prints a traceback instead of failing silently
@@ -57,3 +77,4 @@ jobs:
         with:
           name: declaut-windows-debug
           path: dist\declaut-windows-debug.zip
+          retention-days: 3
