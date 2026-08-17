@@ -25,6 +25,14 @@ from config import DECLARATION_TYPES, MONTHS_LONG, MONTHS_SHORT
 # Declaration types that appear as bare numbers in paths ("Declaratii 100").
 _NUMERIC_TYPES = [t for t in DECLARATION_TYPES if t.isdigit()]
 
+# ANAF form codes that are not bare numbers: the cash-register declaration is
+# filed as F4109, so 'F4109_...pdf' has to map onto "Case de marcat".
+_FORM_CODES = {"F4109": "Case de marcat"}
+
+# Marks a digitally signed export. Accountants keep the signed and unsigned
+# copies side by side, and only the signed one may be filed.
+_SEMNAT_RE = re.compile(r"\bSEMNAT[AE]?\b")
+
 # Company-name noise that must not take part in matching.
 _LEGAL_FORMS = {"SC", "SRL", "SA", "PFA", "II", "SNC", "SCS", "SRLD"}
 
@@ -62,12 +70,21 @@ class Candidate:
     tip: str | None = None
     an: int | None = None
     luna: int | None = None
+    semnat: bool = False
+    # Set when the file must not be filed even though it is fully identified —
+    # currently only the unsigned half of a signed/unsigned pair.
+    skip_reason: str | None = None
     notes: list[str] = field(default_factory=list)
 
     @property
     def resolved(self) -> bool:
         """True when there is enough information to attempt an upload."""
         return None not in (self.firma_id, self.tip, self.an, self.luna)
+
+    @property
+    def sendable(self) -> bool:
+        """Identified AND allowed to go to ANAF."""
+        return self.resolved and self.skip_reason is None
 
 
 def _match_firma(haystack: str, firme: list) -> tuple[object | None, str]:
@@ -101,6 +118,12 @@ def _match_firma(haystack: str, firme: list) -> tuple[object | None, str]:
 def _match_tip(haystack: str) -> tuple[str | None, str]:
     """Identify the declaration type. Later path segments win, since the file
     name is more specific than an ancestor folder like 'Declaratii 100'."""
+    # Letter-prefixed form codes, which are not bare numbers: the cash-register
+    # declaration is filed as F4109. Checked first, being the most specific.
+    for code, tip in _FORM_CODES.items():
+        if re.search(rf"(?<![0-9A-Z]){code}(?!\d)", haystack):
+            return tip, f"formularul {code} → {tip}"
+
     if "CASE DE MARCAT" in haystack:
         return "Case de marcat", "„case de marcat” găsit în cale"
 
@@ -180,9 +203,34 @@ def _scan_folder(root: Path, firme: list, preset_firma=None) -> list[Candidate]:
                 cand.cui = firma["cui"]
         cand.tip, why_tip = _match_tip(haystack)
         cand.an, cand.luna, why_period = _match_period(haystack)
-        cand.notes = [why_firma, why_tip, why_period]
+        cand.semnat = bool(_SEMNAT_RE.search(haystack))
+        cand.notes = [why_firma, why_tip, why_period,
+                      "semnată" if cand.semnat else "fără marcaj de semnătură"]
         candidates.append(cand)
     return candidates
+
+
+def _mark_unsigned_duplicates(candidates: list[Candidate]) -> None:
+    """Exclude the unsigned copy when the signed one is present too.
+
+    Accountants keep both exports of the same declaration in one folder. Both
+    identify as the same firm/type/period, so without this the app would offer
+    to file the declaration twice — and ANAF only accepts the signed copy.
+    An unsigned file with no signed twin is left alone: it may simply be a
+    folder that does not use the suffix at all.
+    """
+    groups: dict[tuple, list[Candidate]] = {}
+    for cand in candidates:
+        if cand.resolved:
+            groups.setdefault(
+                (cand.firma_id, cand.tip, cand.an, cand.luna), []).append(cand)
+
+    for group in groups.values():
+        if not any(c.semnat for c in group):
+            continue
+        for cand in group:
+            if not cand.semnat:
+                cand.skip_reason = "există varianta semnată a acestei declarații"
 
 
 def scan(folder: Path | str | None = None) -> list[Candidate]:
@@ -206,7 +254,8 @@ def scan(folder: Path | str | None = None) -> list[Candidate]:
         if not root.is_dir():
             raise FileNotFoundError(root)
         candidates = _scan_folder(root, firme)
-        candidates.sort(key=lambda c: (c.resolved, str(c.path)))
+        _mark_unsigned_duplicates(candidates)
+        candidates.sort(key=lambda c: (c.sendable, str(c.path)))
         return candidates
 
     seen: set[Path] = set()
@@ -235,5 +284,8 @@ def scan(folder: Path | str | None = None) -> list[Candidate]:
     elif not any_dedicated:
         raise FileNotFoundError(shared)
 
-    candidates.sort(key=lambda c: (c.resolved, str(c.path)))
+    # Across all folders at once: a signed copy anywhere excludes its unsigned
+    # twin, even when the two arrived from different folders.
+    _mark_unsigned_duplicates(candidates)
+    candidates.sort(key=lambda c: (c.sendable, str(c.path)))
     return candidates
