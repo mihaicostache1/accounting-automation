@@ -12,10 +12,11 @@ import shutil
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QTimer
-from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog, QMainWindow,
-                               QMessageBox, QTabWidget, QToolBar)
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QAction, QIcon
+from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog, QFrame,
+                               QHBoxLayout, QLabel, QMainWindow, QMessageBox,
+                               QPushButton, QTabWidget, QVBoxLayout, QWidget)
 
 import database
 from anaf_service import CellJob, RecipisaWorker
@@ -26,6 +27,7 @@ from widgets.company_dialog import CompanyDialog
 from widgets.company_tab import CompanyTab
 from widgets.import_dialog import ImportDialog
 from widgets.overview_tab import OverviewTab
+from widgets.report_dialog import ReportDialog
 from widgets.upload_dialog import UploadDialog
 
 
@@ -35,20 +37,27 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(APP_NAME)
         self.resize(1150, 640)
 
-        toolbar = QToolBar("Acțiuni")
-        toolbar.setMovable(False)
-        toolbar.addAction("➕  Adaugă firmă", self._add_company)
-        toolbar.addAction("📥  Importă din Excel", self._import_from_excel)
-        toolbar.addAction("📁  Setări folder", self._choose_base_folder)
-        toolbar.addAction("⬆  Trimite la ANAF", self._upload_declarations)
-        self._check_action = toolbar.addAction("🔄  Verifică recipise ANAF",
+        # Actions stay QActions even though they are shown as sidebar buttons:
+        # enabling/checking them from the rest of the app keeps working, and
+        # the button follows automatically.
+        self._actions = [
+            self._make_action("➕", "Adaugă firmă", self._add_company),
+            self._make_action("📥", "Importă din Excel", self._import_from_excel),
+            self._make_action("📁", "Setări folder", self._choose_base_folder),
+            self._make_action("⬆", "Trimite la ANAF", self._upload_declarations),
+            self._make_action("📊", "Raport Excel", self._export_report),
+        ]
+        self._check_action = self._make_action("🔄", "Verifică recipise ANAF",
                                                self._check_all_recipise)
-        self._auto_action = toolbar.addAction("⏱  Verificare automată")
+        self._actions.append(self._check_action)
+
+        self._auto_action = self._make_action("⏱", "Verificare automată")
         self._auto_action.setCheckable(True)
         self._auto_action.setToolTip(
             f"Verifică singură la fiecare {AUTO_RECIPISA_INTERVAL_MIN} de minute "
             "și descarcă recipisele disponibile, cât timp aplicația este deschisă.")
-        self.addToolBar(toolbar)
+        self._actions.append(self._auto_action)
+
         self._recipisa_worker: RecipisaWorker | None = None
         self._silent_check = False
 
@@ -63,7 +72,24 @@ class MainWindow(QMainWindow):
         self.overview_tab = OverviewTab()
         self.tabs.addTab(self.company_tab, "Vizualizare firmă")
         self.tabs.addTab(self.overview_tab, "Situație globală")
-        self.setCentralWidget(self.tabs)
+
+        central = QWidget()
+        root = QHBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        root.addWidget(self._build_sidebar())
+
+        content = QWidget()
+        content.setProperty("role", "content")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(22, 18, 22, 18)
+        content_layout.setSpacing(12)
+        self.page_title = QLabel(APP_NAME)
+        self.page_title.setProperty("role", "page-title")
+        content_layout.addWidget(self.page_title)
+        content_layout.addWidget(self.tabs, stretch=1)
+        root.addWidget(content, stretch=1)
+        self.setCentralWidget(central)
 
         # Cross-tab wiring: edits refresh the overview; overview cells navigate.
         self.company_tab.data_changed.connect(self.overview_tab.refresh)
@@ -74,6 +100,67 @@ class MainWindow(QMainWindow):
         self._auto_action.toggled.connect(self._set_auto_check)
         self._auto_action.setChecked(database.get_auto_recipise())
         self._update_status_bar()
+
+    def _make_action(self, icon: str, text: str, slot=None) -> QAction:
+        """An action labelled with its icon glyph kept separate, so the sidebar
+        can align the glyphs in their own column."""
+        action = QAction(f"{icon}   {text}", self)
+        if slot is not None:
+            action.triggered.connect(slot)
+        return action
+
+    def _build_sidebar(self) -> QWidget:
+        """Left navigation panel holding every action the toolbar used to."""
+        sidebar = QFrame()
+        sidebar.setProperty("role", "sidebar")
+        sidebar.setFixedWidth(236)
+
+        layout = QVBoxLayout(sidebar)
+        layout.setContentsMargins(14, 18, 14, 18)
+        layout.setSpacing(4)
+
+        brand = QLabel("DECLAUT")
+        brand.setProperty("role", "brand")
+        layout.addWidget(brand)
+        subtitle = QLabel("Evidență declarații fiscale")
+        subtitle.setProperty("role", "brand-sub")
+        subtitle.setWordWrap(True)
+        layout.addWidget(subtitle)
+        layout.addSpacing(18)
+
+        section = QLabel("ACȚIUNI")
+        section.setProperty("role", "nav-section")
+        layout.addWidget(section)
+
+        for action in self._actions:
+            layout.addWidget(self._nav_button(action))
+
+        layout.addStretch(1)
+        return sidebar
+
+    def _nav_button(self, action: QAction) -> QPushButton:
+        """A sidebar entry driven by `action`.
+
+        A QPushButton rather than QToolButton because only the former honours
+        `text-align: left`, and the whole point of a sidebar is a left-aligned
+        column. The action stays the source of truth in both directions, so
+        enabling or checking it from anywhere still drives the button.
+        """
+        button = QPushButton(action.text())
+        button.setProperty("role", "nav")
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setToolTip(action.toolTip())
+        button.setCheckable(action.isCheckable())
+        button.setChecked(action.isChecked())
+        button.setEnabled(action.isEnabled())
+        if action.isCheckable():
+            button.toggled.connect(action.setChecked)
+            action.toggled.connect(button.setChecked)
+        else:
+            button.clicked.connect(action.trigger)
+        action.changed.connect(
+            lambda b=button, a=action: b.setEnabled(a.isEnabled()))
+        return button
 
     def _update_status_bar(self) -> None:
         auto = ("verificare automată pornită" if self._auto_action.isChecked()
@@ -86,6 +173,9 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.company_tab.reload_companies()
             self.overview_tab.refresh()
+
+    def _export_report(self) -> None:
+        ReportDialog(self).exec()
 
     def _import_from_excel(self) -> None:
         dialog = ImportDialog(self)

@@ -198,19 +198,31 @@ class UploadDialog(QDialog):
     def _update_status(self) -> None:
         """Counters under the table. Recomputed after manual corrections too,
         otherwise the line keeps claiming a row still needs attention."""
-        resolved = sum(c.resolved for c in self._candidates)
         total = len(self._candidates)
-        self.status.setText(
-            f"{total} fișiere PDF găsite · {resolved} recunoscute complet · "
-            f"{total - resolved} necesită completare (alegeți firma/perioada în tabel)."
-            if total else
-            "Nu am găsit fișiere PDF în folderul sursă.")
+        if not total:
+            self.status.setText("Nu am găsit fișiere PDF în folderul sursă.")
+            return
+        skipped = sum(1 for c in self._candidates if c.skip_reason)
+        ready = sum(1 for c in self._candidates if c.sendable)
+        parts = [f"{total} fișiere PDF găsite", f"{ready} recunoscute complet"]
+        incomplete = total - ready - skipped
+        if incomplete:
+            parts.append(f"{incomplete} necesită completare "
+                         "(alegeți firma/perioada în tabel)")
+        if skipped:
+            parts.append(f"{skipped} nesemnate, ignorate (există varianta semnată)")
+        self.status.setText(" · ".join(parts) + ".")
 
     def _fill_row(self, row: int, cand: upload_scanner.Candidate) -> None:
         """One table row: a tick box plus editors that write back into `cand`."""
         tick = QTableWidgetItem()
-        tick.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
-        tick.setCheckState(Qt.CheckState.Checked if cand.resolved
+        if cand.skip_reason:
+            # Not tickable: filing this copy is a mistake, not a choice.
+            tick.setFlags(Qt.ItemFlag.NoItemFlags)
+        else:
+            tick.setFlags(Qt.ItemFlag.ItemIsUserCheckable
+                          | Qt.ItemFlag.ItemIsEnabled)
+        tick.setCheckState(Qt.CheckState.Checked if cand.sendable
                            else Qt.CheckState.Unchecked)
         self.table.setItem(row, COL_SEND, tick)
 
@@ -278,9 +290,11 @@ class UploadDialog(QDialog):
             lambda _, c=cand, b=luna_box: self._set_field(c, "luna", b.currentData()))
         self.table.setCellWidget(row, COL_LUNA, luna_box)
 
-        note = QTableWidgetItem(" · ".join(cand.notes))
+        # The exclusion reason leads: it explains why the row cannot be ticked.
+        notes = ([f"⊘  {cand.skip_reason}"] if cand.skip_reason else []) + cand.notes
+        note = QTableWidgetItem(" · ".join(notes))
         note.setFlags(Qt.ItemFlag.ItemIsEnabled)
-        note.setToolTip("\n".join(cand.notes))
+        note.setToolTip("\n".join(notes))
         self.table.setItem(row, COL_NOTE, note)
 
     @staticmethod
@@ -313,7 +327,7 @@ class UploadDialog(QDialog):
             if other is not cand:
                 continue
             item = self.table.item(row, COL_SEND)
-            if (item is not None and cand.resolved
+            if (item is not None and cand.sendable
                     and item.checkState() != Qt.CheckState.Checked):
                 self.table.blockSignals(True)
                 item.setCheckState(Qt.CheckState.Checked)
@@ -325,11 +339,11 @@ class UploadDialog(QDialog):
     # ---------------------------------------------------------------- sending
 
     def _checked(self) -> list[upload_scanner.Candidate]:
-        """Ticked rows that are also fully resolved — the actual upload set."""
+        """Ticked rows that are also allowed to be filed — the upload set."""
         out = []
         for row, cand in enumerate(self._candidates):
             item = self.table.item(row, COL_SEND)
-            if item and item.checkState() == Qt.CheckState.Checked and cand.resolved:
+            if item and item.checkState() == Qt.CheckState.Checked and cand.sendable:
                 out.append(cand)
         return out
 

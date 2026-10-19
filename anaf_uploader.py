@@ -220,9 +220,9 @@ def _archive_and_record(job: UploadJob, index: str) -> None:
     existing recipisa poller (anaf_service) can pick the cell up from here."""
     rel = file_manager.import_pdf(job.path, job.cui, job.an, job.luna,
                                   job.tip, "declaratie")
-    database.update_status_fields(
-        job.firma_id, job.tip, job.an, job.luna,
-        status_declaratie=1, path_declaratie=str(rel), index_incarcare=index)
+    database.record_index(
+        job.firma_id, job.tip, job.an, job.luna, index,
+        status_declaratie=1, path_declaratie=str(rel))
 
 
 class UploadWorker(QThread):

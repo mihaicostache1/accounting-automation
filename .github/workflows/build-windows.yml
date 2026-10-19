@@ -9,6 +9,9 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: write       # needed to publish the release
+      actions: write        # needed to prune old artifacts
     steps:
       - uses: actions/checkout@v4
 
@@ -34,11 +37,29 @@ jobs:
       - name: Zip the build
         run: Compress-Archive -Path dist\declaut -DestinationPath dist\declaut-windows.zip
 
+      # This is a private repo, so artifacts count against a 500MB quota while
+      # one build alone is ~186MB. Retention below is not enough on its own —
+      # a few builds in the same week still fill it and uploads start failing
+      # with "storage quota has been hit". Clearing previous builds first keeps
+      # only the current one; they are cheap to reproduce by re-running a tag.
+      - name: Prune previous artifacts
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ids = gh api repos/${{ github.repository }}/actions/artifacts `
+            --paginate -q '.artifacts[] | select(.expired==false) | .id'
+          foreach ($id in $ids) {
+            gh api -X DELETE repos/${{ github.repository }}/actions/artifacts/$id
+          }
+
       - name: Upload artifact
+        continue-on-error: true      # releases below are the real delivery
         uses: actions/upload-artifact@v4
         with:
           name: declaut-windows
           path: dist\declaut-windows.zip
+          retention-days: 7
 
       # Diagnostic twin of the build above: --console keeps a terminal attached
       # so a startup exception prints a traceback instead of failing silently
@@ -53,7 +74,25 @@ jobs:
         run: Compress-Archive -Path dist\declaut-debug -DestinationPath dist\declaut-windows-debug.zip
 
       - name: Upload diagnostic artifact
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: declaut-windows-debug
           path: dist\declaut-windows-debug.zip
+          retention-days: 3
+
+      # Primary delivery. Release assets do not count against the Actions
+      # artifact quota, so a build stays downloadable even when that quota is
+      # exhausted — and its accounting only refreshes every 6-12 hours, far too
+      # slow to unblock a build that is needed now.
+      - name: Publish build as a release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            "dist\declaut-windows.zip" "dist\declaut-windows-debug.zip" `
+            --title "declaut ${{ github.ref_name }}" `
+            --notes "Build Windows. Descărcați **declaut-windows.zip**, dezarhivați **tot folderul** și rulați declaut.exe din interiorul lui (exe-ul singur nu pornește).
+
+          declaut-windows-debug.zip este varianta de diagnostic: rulați-o din cmd dacă aplicația nu pornește, ca să vedeți eroarea."
