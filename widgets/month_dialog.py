@@ -175,9 +175,14 @@ class MonthDialog(QDialog):
         if typed != stored:
             # The stored state describes the OLD index; keeping it would leave
             # a corrected index still showing "index negăsit" until rechecked.
-            database.update_status_fields(self.firma["id"], self.tip, self.an,
-                                          self.luna, index_incarcare=typed,
-                                          stare_validare=None)
+            if typed:
+                database.record_index(self.firma["id"], self.tip, self.an,
+                                      self.luna, typed)
+            else:
+                database.update_status_fields(self.firma["id"], self.tip,
+                                              self.an, self.luna,
+                                              index_incarcare=typed,
+                                              stare_validare=None)
             self.changed = True
 
     def _check_recipisa(self) -> None:

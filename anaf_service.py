@@ -48,10 +48,38 @@ def _cui_number(cui: str) -> str:
     return cui.strip().upper().removeprefix("RO").strip()
 
 
+def _pick_status(job: CellJob, by_index: dict[str, anaf_client.DocumentStatus]
+                 ) -> anaf_client.DocumentStatus | None:
+    """The ANAF row that describes this cell's declaration.
+
+    Normally the stored index. But a declaration that was resent (because the
+    first upload looked failed) has a valid earlier submission and a newer one
+    ANAF rejects as a duplicate — the valid one is the real answer. Walk the
+    cell's index history newest first and take the first valid submission,
+    unless a newer one is still being processed (it may be a correction that
+    will replace the older valid one, so wait for its verdict).
+    """
+    current = by_index.get(str(job.index).strip())
+    history = database.list_index_history(job.firma_id, job.tip, job.an, job.luna)
+    for index in history:
+        status = by_index.get(index)
+        if status is None:
+            continue
+        if status.stare == anaf_client.STARE_VALID:
+            return status
+        if status.stare in (anaf_client.STARE_IN_PRELUCRARE,
+                            anaf_client.STARE_NECUNOSCUT):
+            break
+    return current
+
+
 def _sync_cell(job: CellJob, status: anaf_client.DocumentStatus) -> CellOutcome:
     """Store the validation state and fetch the recipisa for one cell."""
-    database.update_status_fields(job.firma_id, job.tip, job.an, job.luna,
-                                  stare_validare=status.stare)
+    switched = status.index != str(job.index).strip()
+    fields = {"stare_validare": status.stare}
+    if switched:
+        fields["index_incarcare"] = status.index
+    database.update_status_fields(job.firma_id, job.tip, job.an, job.luna, **fields)
     label = anaf_client.STARE_LABELS.get(status.stare, status.stare_text)
 
     downloaded = False
@@ -59,15 +87,24 @@ def _sync_cell(job: CellJob, status: anaf_client.DocumentStatus) -> CellOutcome:
         rel = file_manager.relative_doc_path(job.cui, job.an, job.luna,
                                              job.tip, "recipisa")
         dest = database.get_base_folder() / rel
-        if not dest.is_file():
-            pdf = anaf_client.download_recipisa(job.index)
+        row = database.get_status(job.firma_id, job.tip, job.an, job.luna)
+        file_index = row["index_recipisa"] if row else None
+        # A file on disk may be the recipisa of another index of this cell
+        # (e.g. the rejection of a duplicate) — replace it in that case.
+        stale = switched or (file_index is not None and file_index != status.index)
+        if stale or not dest.is_file():
+            pdf = anaf_client.download_recipisa(status.index)
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(pdf)
             downloaded = True
         database.update_status_fields(job.firma_id, job.tip, job.an, job.luna,
-                                      status_recipisa=1, path_recipisa=str(rel))
+                                      status_recipisa=1, path_recipisa=str(rel),
+                                      index_recipisa=status.index)
 
     parts = [label]
+    if switched:
+        parts.append(f"folosită depunerea validă cu indexul {status.index} "
+                     f"(indexul {job.index} a fost respins, probabil ca duplicat)")
     if downloaded:
         parts.append("recipisă descărcată")
     elif status.recipisa_disponibila:
@@ -105,7 +142,7 @@ class RecipisaWorker(QThread):
 
             by_index = {s.index: s for s in statuses}
             for job in jobs:
-                status = by_index.get(str(job.index).strip())
+                status = _pick_status(job, by_index)
                 if status is None:
                     # Store it: unlike a network error, an index ANAF does not
                     # know about is a real problem with this declaration, and
