@@ -13,6 +13,8 @@ scanner could not resolve are shown but cannot be ticked.
 
 from __future__ import annotations
 
+from datetime import date
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QComboBox, QCompleter, QDialog, QDialogButtonBox,
                                QFileDialog, QHBoxLayout, QHeaderView, QLabel,
@@ -270,7 +272,7 @@ class UploadDialog(QDialog):
         an_spin = QSpinBox()
         an_spin.setProperty("role", "compact")
         an_spin.setRange(min(YEARS) - 5, max(YEARS) + 5)
-        an_spin.setValue(cand.an or min(YEARS))
+        an_spin.setValue(cand.an or date.today().year)
         # A spin box cannot show "empty", so adopt the displayed year as the
         # candidate's value — otherwise a row looks complete while `an` is still
         # None and silently refuses to send.

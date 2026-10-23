@@ -48,7 +48,8 @@ CHROME_DEBUG_PORT = 9222
 ANAF_UPLOAD_URL = "https://decl.anaf.mfinante.gov.ro/WAS6DUS"
 
 # Declaration types shown as toggle buttons (Tab 1) and columns (Tab 2).
-DECLARATION_TYPES = ["100", "112", "300", "390", "394", "406", "Case de marcat"]
+DECLARATION_TYPES = ["100", "112", "300", "390", "394", "406", "710",
+                     "Case de marcat"]
 
 # Types that follow the firm's VAT periodicity: choosing lunar/trimestrial for
 # 300 in the firm dialog applies the same to 394 and 406.
@@ -64,7 +65,7 @@ AUTO_RECIPISA_INTERVAL_MIN = 30
 AUTO_RECIPISA_STARTUP_DELAY_S = 20
 
 # Years shown as rows in the Tab 1 matrix.
-YEARS = [2026, 2027, 2028]
+YEARS = [2025, 2026, 2027, 2028]
 
 MONTHS_SHORT = ["Ian", "Feb", "Mar", "Apr", "Mai", "Iun",
                 "Iul", "Aug", "Sep", "Oct", "Nov", "Dec"]

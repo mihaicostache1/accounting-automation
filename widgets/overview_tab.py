@@ -42,7 +42,8 @@ class OverviewTab(QWidget):
         self.year_combo.setMinimumWidth(100)
         for year in YEARS:
             self.year_combo.addItem(str(year), userData=year)
-        self.year_combo.setCurrentIndex(0)  # 2026 by default
+        self.year_combo.setCurrentIndex(  # current year by default
+            max(0, self.year_combo.findData(date.today().year)))
         self.year_combo.currentIndexChanged.connect(lambda _idx: self.refresh())
         top.addWidget(self.year_combo)
 

@@ -1,7 +1,7 @@
 # Evidență Declarații Fiscale
 
 Aplicație desktop (PySide6 + SQLite) pentru urmărirea declarațiilor fiscale
-(`100`, `112`, `300`, `390`, `406`, `Case de marcat`) pe firme, ani și luni,
+(`100`, `112`, `300`, `390`, `406`, `710` (rectificativă), `Case de marcat`) pe firme, ani și luni,
 cu vizualizarea PDF-urilor asociate (declarație + recipisă).
 
 ## Instalare și pornire
