@@ -4,3 +4,9 @@ PySide6>=6.6
 playwright>=1.40
 # Excel import of firms (see excel_import).
 openpyxl>=3.1
+# Keeps the account's refresh token in the OS credential store (Windows
+# Credential Manager) instead of the SQLite file (see auth).
+keyring>=25
+# Verifies the Ed25519-signed license tokens offline (see licensing). The
+# crypto extra pulls in `cryptography`, which EdDSA needs.
+PyJWT[crypto]>=2.8

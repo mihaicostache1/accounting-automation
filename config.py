@@ -6,6 +6,11 @@ from pathlib import Path
 
 APP_NAME = "Evidență Declarații Fiscale"
 
+# Version of this build, compared against the latest release the server
+# reports. The release workflow overwrites it from the git tag before
+# PyInstaller runs, so a tag and the app built from it always agree.
+APP_VERSION = "0.8.0"
+
 
 def _data_dir() -> Path:
     """Writable data dir: next to the code in development, the per-user
@@ -46,6 +51,44 @@ CHROME_DEBUG_PORT = 9222
 
 # ANAF's certificate-authenticated upload page for D112-family declarations.
 ANAF_UPLOAD_URL = "https://decl.anaf.mfinante.gov.ro/WAS6DUS"
+
+# Accounts and licensing: the values shared with the website/backend (the
+# "Shared contract" of the subscription plan). All of them are public by
+# design — the publishable key only names the Supabase project, and the
+# license key can check tokens but never issue them. Server secrets (Stripe,
+# service-role key, the license private key) must never be added here.
+# Empty until the backend's step A1 hands the real values over.
+_ENVIRONMENTS = {
+    "production": {
+        "website": "",              # e.g. https://declaut.ro
+        "supabase_url": "",         # https://<project>.supabase.co
+        "supabase_key": "",         # publishable (anon) key
+        "license_key": "",          # Ed25519 public key, PEM
+    },
+    "staging": {
+        "website": "",
+        "supabase_url": "",
+        "supabase_key": "",
+        "license_key": "",
+    },
+}
+
+# A released build always talks to production; DECLAUT_ENV=staging is only
+# honoured when running from source, so a shipped exe cannot be pointed at
+# another server.
+_ENV_NAME = ("production" if getattr(sys, "frozen", False)
+             else os.environ.get("DECLAUT_ENV", "production"))
+_ENV = _ENVIRONMENTS[_ENV_NAME]
+
+WEBSITE_URL = _ENV["website"]
+API_BASE_URL = f"{WEBSITE_URL}/api"
+SUPABASE_URL = _ENV["supabase_url"]
+SUPABASE_PUBLISHABLE_KEY = _ENV["supabase_key"]
+LICENSE_PUBLIC_KEY = _ENV["license_key"]
+
+# Firm limit whenever there is no valid license: the Free plan, signed out,
+# or offline past the cached token's expiry. A Pro token carries its own.
+FREE_MAX_FIRMS = 10
 
 # Declaration types shown as toggle buttons (Tab 1) and columns (Tab 2).
 DECLARATION_TYPES = ["100", "112", "300", "390", "394", "406", "710",
